@@ -8,8 +8,7 @@ import pathlib
 import sys
 from typing import Any, List, Optional, Tuple, Union
 
-from blark import output
-
+from . import output
 from . import transform as tf
 from .output import OutputBlock
 from .parse import ParseResult

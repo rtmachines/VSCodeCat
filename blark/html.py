@@ -212,3 +212,38 @@ def _register():
     register_output_handler("html", HtmlWriter.save)
     register_output_handler(".htm", HtmlWriter.save)
     register_output_handler(".html", HtmlWriter.save)
+
+
+def format_file_as_html(
+    input_filename: pathlib.Path | str,
+    *,
+    header: str = "<html><body>",
+    footer: str = "</body></html>",
+) -> str:
+    """
+    Helper for formatting a file as HTML.
+
+    Parameters
+    ----------
+    input_filename : pathlib.Path or str
+        The source code filename. Any supported by `blark.parse`.
+    header : str, optional
+        HTML header to include in the output.
+        Defaults to html and body opening tags.
+    footer : str, optional
+        HTML footer to include in the output.
+        Defaults to html and body closing tags.
+
+    Note
+    ----
+    Users would typically format a file through blark's CLI by way of
+    `blark format --output-format html`.
+    """
+    from .format import get_reformatted_code_blocks
+    from .parse import parse
+
+    input_filename = pathlib.Path(input_filename)
+    results = parse(input_filename)
+    blocks = get_reformatted_code_blocks(list(results), filename=input_filename)
+    body = HtmlWriter.save(user=None, source_filename=input_filename, parts=blocks)
+    return "".join((header, body, footer))
