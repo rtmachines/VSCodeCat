@@ -581,6 +581,7 @@ class BlarkDomain(Domain):
         node: nodes.Node,
         targetstring: str,
     ):
+        """Find matching domain objects for a cross-reference target."""
         for typename, objtype in self.object_types.items():
             if rolename in objtype.roles:
                 break
@@ -603,6 +604,7 @@ class BlarkDomain(Domain):
         node: addnodes.pending_xref,
         contnode: nodes.Element,
     ) -> nodes.reference:
+        """Resolve a blark cross-reference to the first matching domain object."""
         matches = self.find_obj(typ, node, target)
         if not matches:
             warnings.warn(f"No target found for cross-reference: {target}")

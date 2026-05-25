@@ -3070,6 +3070,8 @@ class Interface:
 
     Examples::
 
+        INTERFACE I_Base
+        END_INTERFACE
     """
     name: lark.Token
     extends: Optional[Extends]

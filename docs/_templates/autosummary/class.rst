@@ -4,7 +4,7 @@
 
 .. autoclass:: {{ objname }}
 
-   {% set grammar = get_grammar_for_class(objname) %}
+   {% set grammar = grammar_by_class.get(objname, {}) %}
    {% if grammar %}
    {% block grammar %}
    .. rubric:: Lark grammar
@@ -40,10 +40,10 @@
    {% if attributes %}
    .. rubric:: {{ _('Attributes') }}
 
-   .. autosummary::
-
    {% for item in attributes %}
-       ~{{ name }}.{{ item }}
+   {%- if item not in inherited_members and item != "type" %}
+   - :py:attr:`~{{ fullname }}.{{ item }}`
+   {%- endif %}
    {%- endfor %}
 
    {%- endif %}

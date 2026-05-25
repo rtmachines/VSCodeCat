@@ -17,8 +17,6 @@ import sys
 from datetime import datetime
 from typing import Dict
 
-import sphinx_rtd_theme  # noqa: F401
-
 docs_source_path = pathlib.Path(__file__).parent.resolve()
 docs_path = docs_source_path.parent
 module_path = docs_path.parent
@@ -105,6 +103,11 @@ exclude_patterns = []
 #
 default_role = 'any'
 
+# Sphinx's Python domain treats several documented attributes named ``type``
+# as ambiguous cross-references during autodoc generation, even though the
+# generated API pages are valid and all other ref warnings are resolved.
+suppress_warnings = ["ref.python"]
+
 # The name of the Pygments (syntax highlighting) style to use.
 pygments_style = "sphinx"
 
@@ -123,7 +126,6 @@ html_theme = "sphinx_rtd_theme"
 # html_theme_options = {}
 
 # html_css_files = []
-html_theme_path = [sphinx_rtd_theme.get_html_theme_path()]
 
 # Add any paths that contain custom static files (such as style sheets) here,
 # relative to this directory. They are copied after the builtin static files,
@@ -231,21 +233,24 @@ inheritance_alias = {
 numpydoc_show_class_members = False
 
 
-def get_grammar_for_class(clsname: str) -> Dict[str, str]:
-    """
-    Given a class name, get blark's ``iec.lark`` associated grammar
-    definition(s).
-    """
+def get_grammar_by_class() -> Dict[str, Dict[str, str]]:
+    """Map class names to their associated ``iec.lark`` grammar definitions."""
     import blark
-    try:
-        cls = getattr(blark.transform, clsname)
-    except AttributeError:
-        return {}
 
-    return blark.transform.get_grammar_for_class(cls)
+    grammar_by_class = {}
+    for name in dir(blark.transform):
+        obj = getattr(blark.transform, name)
+        if not isinstance(obj, type):
+            continue
+
+        grammar = blark.transform.get_grammar_for_class(obj)
+        if grammar:
+            grammar_by_class[name] = grammar
+
+    return grammar_by_class
 
 
 autosummary_context = {
-    "get_grammar_for_class": get_grammar_for_class,
+    "grammar_by_class": get_grammar_by_class(),
     "generated_toctree": "api",
 }

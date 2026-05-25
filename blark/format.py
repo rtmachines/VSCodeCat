@@ -188,7 +188,8 @@ def get_reformatted_code_blocks(
         The parsed source code.
     user : Any, optional
         The loader used for parsing the above (may be a
-        `blark.plain.PlainFileLoader` or a `blark.solution.TcPOU`, for example)
+        :class:`blark.plain.PlainFileLoader` or
+        :class:`blark.solution.TcPOU`, for example)
     filename : pathlib.Path, optional
         The filename associated with the source code parts.
     raise_on_error : bool

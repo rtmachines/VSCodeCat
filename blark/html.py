@@ -226,7 +226,7 @@ def format_file_as_html(
     Parameters
     ----------
     input_filename : pathlib.Path or str
-        The source code filename. Any supported by `blark.parse`.
+        The source code filename. Any supported by :mod:`blark.parse`.
     header : str, optional
         HTML header to include in the output.
         Defaults to html and body opening tags.
@@ -234,10 +234,10 @@ def format_file_as_html(
         HTML footer to include in the output.
         Defaults to html and body closing tags.
 
-    Note
-    ----
+    Notes
+    -----
     Users would typically format a file through blark's CLI by way of
-    `blark format --output-format html`.
+    ``blark format --output-format html``.
     """
     from .format import get_reformatted_code_blocks
     from .parse import parse

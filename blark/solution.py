@@ -1537,7 +1537,7 @@ class Project:
     A stub container for a TwinCAT project (.tsproj) file.
 
     This only contains metadata about the tsproj and allows for full project
-    loading by way of `.load()`.
+    loading by way of :meth:`Project.load`.
     """
     #: The project name.
     name: str
