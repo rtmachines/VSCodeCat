@@ -8,6 +8,7 @@ import hashlib
 import os
 import pathlib
 import re
+import sys
 from typing import Any, Dict, Generator, List, Optional, Set, Tuple, TypeVar
 
 import lark
@@ -175,6 +176,16 @@ def get_source_code(fn: AnyPath, *, encoding: str = "utf-8") -> str:
         result.append(code)
 
     return "\n\n".join(result)
+
+
+def print_to_console(value: Any) -> None:
+    """Print text without failing on narrow Windows console encodings."""
+    text = str(value)
+    try:
+        print(text)
+    except UnicodeEncodeError:
+        encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
+        print(text.encode(encoding, errors="replace").decode(encoding))
 
 
 def indent_inner(text: str, prefix: str) -> str:

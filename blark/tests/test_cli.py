@@ -106,6 +106,63 @@ def test_format_cli(input_filename: str, kwargs: Dict[str, Any]):
     format_main(input_filename, **kwargs)
 
 
+def test_parse_summary_reports_parse_failure(
+    tmp_path: pathlib.Path,
+    capsys: pytest.CaptureFixture[str],
+):
+    source = tmp_path / "broken.st"
+    source.write_text(
+        "PROGRAM Broken\nVAR\nincomplete :\nEND_VAR\nEND_PROGRAM\n",
+        encoding="utf-8",
+    )
+
+    with pytest.raises(SystemExit) as ex:
+        parse_main(source, output_summary=True)
+
+    assert ex.value.code == 1
+    output = capsys.readouterr().out
+    assert "Failed to parse some source code files:" in output
+    assert "broken.st: Broken" in output
+
+
+def test_parse_debug_summary_skips_parse_failure(
+    tmp_path: pathlib.Path,
+    capsys: pytest.CaptureFixture[str],
+):
+    source = tmp_path / "BrokenFb.TcPOU"
+    source.write_text(
+        """<?xml version="1.0" encoding="utf-8"?>
+<TcPlcObject Version="1.1.0.1">
+  <POU Name="BrokenFb" Id="{00000000-0000-0000-0000-000000000001}">
+    <Declaration><![CDATA[FUNCTION_BLOCK BrokenFb
+VAR
+incomplete :
+END_VAR
+]]></Declaration>
+    <Implementation>
+      <ST><![CDATA[]]></ST>
+    </Implementation>
+    <Method Name="Run" Id="{00000000-0000-0000-0000-000000000002}">
+      <Declaration><![CDATA[METHOD Run
+]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[]]></ST>
+      </Implementation>
+    </Method>
+  </POU>
+</TcPlcObject>
+""",
+        encoding="utf-8",
+    )
+
+    parse_main(source, output_summary=True, debug=True)
+
+    output = capsys.readouterr().out
+    assert "Failed to parse some source code files:" in output
+    assert "Traceback" not in output
+    assert "ValueError" not in output
+
+
 @pytest.mark.parametrize(
     "args",
     [

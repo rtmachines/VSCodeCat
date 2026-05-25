@@ -529,16 +529,6 @@ def main(
     except KeyboardInterrupt:
         print("\nCaught KeyboardInterrupt; stopping parsing.")
 
-    if output_summary:
-        summarized = summarize(all_results)
-        if use_json:
-            from .summary import CodeSummary
-            print(dump_json(CodeSummary, summarized, include_meta=include_meta))
-        else:
-            print(summarized)
-    else:
-        summarized = None
-
     if not results_by_filename:
         return {}
 
@@ -546,6 +536,46 @@ def main(
     for _, items in results_by_filename.items():
         results.extend(items)
     failures = [item for item in results if item.exception is not None]
+
+    if failures:
+        print("Failed to parse some source code files:")
+        for failure in failures:
+            header = f"{failure.filename}: {failure.identifier}"
+            print(header)
+            print("-" * len(header))
+            print(f"({type(failure.exception).__name__}) {failure.exception}")
+            print()
+            # traceback.print_exc()
+
+        if not debug:
+            sys.exit(1)
+
+    if output_summary:
+        failed_identifiers = [
+            failure.identifier.split("/", 1)[0]
+            for failure in failures
+            if failure.identifier is not None
+        ]
+
+        def can_summarize(item: ParseResult) -> bool:
+            if item.exception is not None or item.identifier is None:
+                return item.exception is None
+
+            dotted_name = item.identifier.split("/", 1)[0]
+            return not any(
+                dotted_name == failed_identifier
+                or dotted_name.startswith(f"{failed_identifier}.")
+                for failed_identifier in failed_identifiers
+            )
+
+        summarized = summarize([item for item in all_results if can_summarize(item)])
+        if use_json:
+            from .summary import CodeSummary
+            print(dump_json(CodeSummary, summarized, include_meta=include_meta))
+        else:
+            util.print_to_console(summarized)
+    else:
+        summarized = None
 
     if interactive:
         util.python_debug_session(
@@ -564,18 +594,5 @@ def main(
                 f"Any failures are included in ``failures``.\n"
             ),
         )
-
-    if failures:
-        print("Failed to parse some source code files:")
-        for failure in failures:
-            header = f"{failure.filename}: {failure.identifier}"
-            print(header)
-            print("-" * len(header))
-            print(f"({type(failure.exception).__name__}) {failure.exception}")
-            print()
-            # traceback.print_exc()
-
-        if not debug:
-            sys.exit(1)
 
     return results_by_filename
