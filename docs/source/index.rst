@@ -6,6 +6,7 @@ blark
    :caption: User documentation
 
    introduction.rst
+   cli.rst
    sphinx.rst
 
 

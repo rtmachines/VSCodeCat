@@ -94,12 +94,17 @@ you may install directly from this repository like so:
 
    $ python -m pip install git+https://github.com/klauer/blark
 
+For a command-by-command guide to the CLI application, including the
+``project`` round-trip workflow and the single-file Windows executable, see
+:doc:`cli`.
+
 Sample runs
 -----------
 
 Run the parser or experimental formatter utility. Current supported file
-types include those from TwinCAT3 projects ( ``.tsproj``, ``.sln``,
-``.TcPOU``, ``.TcGVL``) and plain-text ``.st`` files.
+types include those from TwinCAT3 projects ( ``.sln``, ``.tsproj``,
+``.plcproj``, ``.TcPOU``, ``.TcGVL``, ``.TcDUT``, ``.TcIO``, ``.TcTTO``)
+and plain-text ``.st`` files.
 
 .. code:: bash
 

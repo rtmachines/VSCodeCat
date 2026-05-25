@@ -31,8 +31,8 @@ def build_arg_parser(argparser=None):
         "filename",
         type=str,
         help=(
-            "Path to project, solution, source code file (.tsproj, .sln, "
-            ".TcPOU, .TcGVL)"
+            "Path to project, solution, or source code file (.sln, .tsproj, "
+            ".plcproj, .TcPOU, .TcGVL, .TcDUT, .TcIO, .TcTTO, .st)"
         ),
     )
 
@@ -40,7 +40,10 @@ def build_arg_parser(argparser=None):
         "-if",
         "--input-format",
         type=str,
-        help="Output file format, if not the same as the input format",
+        help=(
+            "Load the provided files as the given type, overriding built-in "
+            "filename extension mapping."
+        ),
     )
     argparser.add_argument(
         "--verbose",
@@ -78,7 +81,10 @@ def build_arg_parser(argparser=None):
         "-of",
         "--output-format",
         type=str,
-        help="Output file format, if not the same as the input format",
+        help=(
+            "Write output using the given handler or extension, instead of "
+            "the input format."
+        ),
     )
     return argparser
 

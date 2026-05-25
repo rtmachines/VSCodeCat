@@ -287,8 +287,8 @@ def build_arg_parser(argparser=None):
         "filename",
         type=str,
         help=(
-            "Path to project, solution, source code file (.tsproj, .sln, "
-            ".TcPOU, .TcGVL)"
+            "Path to project, solution, or source code file (.sln, .tsproj, "
+            ".plcproj, .TcPOU, .TcGVL, .TcDUT, .TcIO, .TcTTO, .st)"
         ),
     )
 

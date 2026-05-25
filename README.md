@@ -85,11 +85,134 @@ $ python -m PyInstaller --clean --noconfirm blark.spec
 
 The generated executable will be written to `dist/blark.exe`.
 
+## CLI application
+
+You can run the CLI in any of these forms:
+
+```bash
+$ blark --help
+$ python -m blark --help
+dist/blark.exe --help
+```
+
+The top-level application exposes three subcommands:
+
+| Command | Purpose | Typical input | Default output |
+| --- | --- | --- | --- |
+| `blark parse` | Parse TwinCAT or plain Structured Text source and inspect the parse results | `.sln`, `.tsproj`, `.plcproj`, `.TcPOU`, `.TcGVL`, `.TcDUT`, `.TcIO`, `.TcTTO`, `.st` | Console output, JSON, or summaries |
+| `blark format` | Reformat parsed source code and optionally write it back out | Same as `parse` | Reformatted code to stdout unless `--overwrite` or `--write-to` is used |
+| `blark project` | Decode and encode TwinCAT projects to and from a structured round-trip folder | Native TwinCAT artifacts or a previously decoded folder | A structured folder (`decode`) or native TwinCAT tree (`encode`) |
+
+The quickest way to discover command-specific flags is through `--help`:
+
+```bash
+$ blark parse --help
+$ blark format --help
+$ blark project --help
+$ blark project decode --help
+$ blark project encode --help
+```
+
+### `blark parse`
+
+Use `parse` when you want to inspect source code without modifying it.
+
+- It can parse a single file, a PLC project, or a full TwinCAT solution.
+- By default it prints parse failures and exits with code `1` if any source block fails to parse.
+- `--debug` keeps the process running even when failures are encountered, which is useful when exploring mixed or partially supported projects.
+- `--json` emits the transformed representation instead of the tree or summary.
+- `--summary` builds a higher-level outline of declarations, implementations, and relationships.
+- `--filter` narrows parsing to matching identifiers or filenames.
+- `--interactive` opens an IPython or Python debugging session with the parse results loaded.
+
+Safe examples:
+
+```bash
+$ blark parse --print-tree blark/tests/POUs/F_SetStateParams.TcPOU
+$ blark parse --summary blark/tests/twincat_root/SampleLibraryA/SampleLibraryA.sln
+$ blark parse --json blark/tests/source/array_of_objects.st
+```
+
+### `blark format`
+
+Use `format` when you want consistent source formatting or want to rewrite TwinCAT XML-backed source files with reformatted Structured Text.
+
+- Without `--overwrite` or `--write-to`, formatted output is written to stdout.
+- `--overwrite` writes back to the original source path.
+- `--write-to` writes to a separate file or directory.
+- `--input-format` forces the input loader when the extension is ambiguous.
+- `--output-format` selects a specific writer when you do not want the input format preserved.
+- `--indent` changes the indentation string used for formatted output.
+
+Safe examples:
+
+```bash
+$ blark format blark/tests/source/array_of_objects.st
+$ blark format --debug blark/tests/POUs/F_SetStateParams.TcPOU
+```
+
+Typical write workflows:
+
+```bash
+blark format --overwrite path/to/file.TcPOU
+blark format --write-to out/ path/to/project.sln
+blark format --output-format html --write-to report.html path/to/file.st
+```
+
+### `blark project`
+
+Use `project` when you want a round-trip friendly representation of TwinCAT projects.
+
+`blark project decode`:
+
+- Validates the input path, extension, TwinCAT layout, and supported file types.
+- Copies the native project tree into `native/`.
+- Extracts editable Structured Text blocks into `st/`.
+- Writes a manifest file, `blark_twincat.json`, which records how each `.st` file maps back to the native TwinCAT source.
+- Fails loudly on unsupported compile items, malformed XML, inconsistent project references, or overwrite conflicts.
+
+`blark project encode`:
+
+- Reads a previously decoded folder.
+- Validates the manifest, `native/`, and `st/` contents before writing output.
+- Parses every edited `.st` file again to ensure the round-trip result is still valid.
+- Applies only the changed Structured Text blocks back into a copied native TwinCAT tree.
+- Refuses to proceed when files are missing, extra `.st` files appear, identifiers drift, or rewrite safety checks fail.
+
+Structured folder layout:
+
+```text
+structured/
+  blark_twincat.json
+  native/
+    ...
+  st/
+    ...
+```
+
+Typical workflows:
+
+```bash
+blark project decode path/to/project.sln out/structured --overwrite
+blark project encode out/structured out/native --overwrite
+```
+
+### Windows executable
+
+The single-file executable behaves the same as the Python entry point:
+
+```bash
+dist/blark.exe --help
+dist/blark.exe parse path/to/file.TcPOU
+dist/blark.exe project decode path/to/project.sln out/structured --overwrite
+```
+
 ## Sample runs
 
 Run the parser or experimental formatter utility.  Current supported file types
-include those from TwinCAT3 projects ( ``.tsproj``, ``.sln``, ``.TcPOU``,
-``.TcGVL``) and plain-text ``.st`` files.
+include those from TwinCAT3 projects ( ``.sln``, ``.tsproj``, ``.plcproj``,
+``.TcPOU``, ``.TcGVL``, ``.TcDUT``, ``.TcIO``, ``.TcTTO``) and plain-text
+``.st`` files.
 
 ```bash
 $ blark parse --print-tree blark/tests/POUs/F_SetStateParams.TcPOU
