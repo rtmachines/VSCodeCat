@@ -13,6 +13,9 @@ from ..main import main as blark_main
 TWINCAT_ROOT = pathlib.Path(__file__).parent / "twincat_root"
 SAMPLE_SOLUTION = TWINCAT_ROOT / "SampleLibraryA" / "SampleLibraryA.sln"
 PROJECT_A_SOLUTION = TWINCAT_ROOT / "project_a" / "project_a.sln"
+LCLS_GENERAL_SOLUTION = (
+    TWINCAT_ROOT / "lcls-twincat-general" / "v2.8.1" / "LCLSGeneral.sln"
+)
 
 
 def load_manifest(structured: pathlib.Path) -> dict:
@@ -38,6 +41,72 @@ def test_project_decode_encode_round_trip(tmp_path: pathlib.Path):
     assert encoded_source.read_bytes() == original_source.read_bytes()
 
 
+def test_project_decode_preserves_twincat_object_layout(tmp_path: pathlib.Path):
+    structured = tmp_path / "structured"
+
+    manifest = project.decode(SAMPLE_SOLUTION, structured)
+
+    expected_st = (
+        structured
+        / project.ST_DIRNAME
+        / "SampleLibraryA"
+        / "SampleLibraryA"
+        / "POUs"
+        / "FB_SampleA_Test.st"
+    )
+    assert expected_st.is_file()
+    assert not (
+        structured
+        / project.ST_DIRNAME
+        / "SampleLibraryA"
+        / "SampleLibraryA"
+        / "POUs"
+        / "FB_SampleA_Test.TcPOU"
+    ).exists()
+    assert {
+        item["st_path"]
+        for item in manifest["items"]
+        if item["object_identifier"] == "FB_SampleA_Test"
+    } == {
+        "st/SampleLibraryA/SampleLibraryA/POUs/FB_SampleA_Test.st",
+    }
+
+    st_code = expected_st.read_text(encoding="utf-8")
+    assert "FUNCTION_BLOCK FB_SampleA_Test" in st_code
+    assert "END_FUNCTION_BLOCK" in st_code
+    assert "fOutput := fInput;" in st_code
+
+
+def test_project_decode_preserves_nested_twincat_object_layout(
+    tmp_path: pathlib.Path,
+):
+    structured = tmp_path / "structured"
+
+    project.decode(LCLS_GENERAL_SOLUTION, structured)
+
+    assert (
+        structured
+        / project.ST_DIRNAME
+        / "LCLSGeneral"
+        / "LCLSGeneral"
+        / "POUs"
+        / "Logger"
+        / "FB_LogHandler.st"
+    ).is_file()
+    action_st = (
+        structured
+        / project.ST_DIRNAME
+        / "LCLSGeneral"
+        / "LCLSGeneral"
+        / "POUs"
+        / "Logger"
+        / "FB_LogHandler"
+        / "CircuitBreaker.st"
+    )
+    assert action_st.is_file()
+    assert "// Global log circuit breaker" in action_st.read_text(encoding="utf-8")
+
+
 def test_project_encode_applies_structured_text_change(tmp_path: pathlib.Path):
     structured = tmp_path / "structured"
     native_output = tmp_path / "native_output"
@@ -49,7 +118,11 @@ def test_project_encode_applies_structured_text_change(tmp_path: pathlib.Path):
         if item["identifier"].endswith("/implementation")
     )
     st_path = structured / implementation["st_path"]
-    st_path.write_text("fOutput := fInput + 1.0;", encoding="utf-8")
+    st_code = st_path.read_text(encoding="utf-8")
+    st_path.write_text(
+        st_code.replace("fOutput := fInput;", "fOutput := fInput + 1.0;"),
+        encoding="utf-8",
+    )
 
     project.encode(structured, native_output)
 

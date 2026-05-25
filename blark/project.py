@@ -497,6 +497,148 @@ def _sanitize_identifier(value: str) -> str:
     return value or "source"
 
 
+def _validate_object_path_part(value: str, identifier: str) -> str:
+    if not value or value in {".", ".."}:
+        raise _format_error(
+            what="TwinCAT object path validation",
+            where=identifier,
+            why=f"The object name part {value!r} cannot be represented as a file path.",
+            next_step="Rename the TwinCAT object to a filesystem-safe name and retry.",
+        )
+    if re.search(r'[<>:"/\\|?*\x00-\x1f]', value):
+        raise _format_error(
+            what="TwinCAT object path validation",
+            where=identifier,
+            why=(
+                f"The object name part {value!r} contains a character that is not "
+                "safe in file paths."
+            ),
+            next_step="Rename the TwinCAT object to a filesystem-safe name and retry.",
+        )
+    return value
+
+
+def _get_object_identifier(item: BlarkSourceItem) -> str:
+    ident = util.Identifier.from_string(item.identifier)
+    return ident.dotted_name
+
+
+def _group_parts_by_object(
+    item: Union[BlarkSourceItem, BlarkCompositeSourceItem],
+) -> Iterable[tuple[str, list[BlarkSourceItem]]]:
+    groups: dict[str, list[BlarkSourceItem]] = {}
+    order: list[str] = []
+    for part in _flatten_items(item):
+        identifier = _get_object_identifier(part)
+        if identifier not in groups:
+            groups[identifier] = []
+            order.append(identifier)
+        groups[identifier].append(part)
+
+    for identifier in order:
+        yield identifier, groups[identifier]
+
+
+def _st_path_for_object(
+    *,
+    source_rel: pathlib.Path,
+    object_identifier: str,
+) -> pathlib.Path:
+    ident = util.Identifier.from_string(object_identifier)
+    object_parts = [
+        _validate_object_path_part(part, object_identifier)
+        for part in ident.parts
+    ]
+    if not object_parts:
+        object_parts = [_sanitize_identifier(source_rel.stem)]
+
+    st_rel = pathlib.Path(ST_DIRNAME) / source_rel.parent
+    for parent_part in object_parts[:-1]:
+        st_rel /= parent_part
+    return st_rel / f"{object_parts[-1]}.st"
+
+
+def _single_source_filename(
+    *,
+    parts: list[BlarkSourceItem],
+    input_path: pathlib.Path,
+    identifier: str,
+) -> pathlib.Path:
+    filenames = sorted(
+        {
+            pathlib.Path(filename).resolve()
+            for part in parts
+            for filename in part.get_filenames()
+        },
+        key=str,
+    )
+    if len(filenames) != 1:
+        raise _format_error(
+            what="source item validation",
+            where=input_path,
+            why=(
+                f"{identifier!r} maps to {len(filenames)} files; "
+                "exactly one source file is required for round-tripping."
+            ),
+            next_step="Split the item into file-local parts and retry.",
+        )
+    return filenames[0]
+
+
+def _source_relative_path(
+    *,
+    source_filename: pathlib.Path,
+    source_root: pathlib.Path,
+) -> pathlib.Path:
+    source_rel = _relative_to(source_filename, source_root)
+    if source_rel is None:
+        raise _format_error(
+            what="source root validation",
+            where=source_filename,
+            why=f"The source file is outside {source_root}.",
+            next_step=(
+                "Move all TwinCAT project files under one project root before "
+                "decoding."
+            ),
+        )
+    return source_rel
+
+
+def _group_implicit_end(parts: list[BlarkSourceItem]) -> str:
+    for part in parts:
+        ident = util.Identifier.from_string(part.identifier)
+        if ident.decl_impl == "declaration" and part.implicit_end:
+            return part.implicit_end
+    return ""
+
+
+def _combine_object_parts(
+    *,
+    parts: list[BlarkSourceItem],
+    st_path: pathlib.Path,
+) -> tuple[str, list[tuple[BlarkSourceItem, int, int]], str]:
+    blocks: list[str] = []
+    sections: list[tuple[BlarkSourceItem, int, int]] = []
+    next_line = 1
+
+    for part in parts:
+        code, _ = part.get_code_and_line_map()
+        _validate_st_syntax(st_path, part, code)
+
+        if blocks:
+            blocks.append("")
+            next_line += 1
+
+        line_count = len(code.splitlines())
+        start_line = next_line
+        end_line = start_line + line_count - 1
+        blocks.append(code)
+        next_line += line_count
+        sections.append((part, start_line, end_line))
+
+    return "\n".join(blocks), sections, _group_implicit_end(parts)
+
+
 def _validate_st_syntax(st_path: pathlib.Path, item: BlarkSourceItem, code: str) -> None:
     result = parse_source_code(
         code,
@@ -689,56 +831,57 @@ def decode(
     _ensure_not_inside(output_dir, layout.source_root, "output_path")
 
     manifest_items: list[dict[str, Any]] = []
-    extracted_blocks: list[tuple[pathlib.Path, str]] = []
+    extracted_blocks: dict[pathlib.Path, str] = {}
     loaded_items = load_file_by_name(layout.input_path)
-    source_index = 0
     for loaded_item in loaded_items:
-        for item in _flatten_items(loaded_item):
-            source_index += 1
-            filenames = sorted(item.get_filenames(), key=str)
-            if len(filenames) != 1:
+        for object_identifier, object_parts in _group_parts_by_object(loaded_item):
+            source_filename = _single_source_filename(
+                parts=object_parts,
+                input_path=layout.input_path,
+                identifier=object_identifier,
+            )
+            source_rel = _source_relative_path(
+                source_filename=source_filename,
+                source_root=layout.source_root,
+            )
+            st_rel = _st_path_for_object(
+                source_rel=source_rel,
+                object_identifier=object_identifier,
+            )
+            code, sections, implicit_end = _combine_object_parts(
+                parts=object_parts,
+                st_path=output_dir / st_rel,
+            )
+
+            existing_code = extracted_blocks.get(st_rel)
+            if existing_code is not None and existing_code != code:
                 raise _format_error(
-                    what="source item validation",
-                    where=layout.input_path,
+                    what="Structured Text output validation",
+                    where=output_dir / st_rel,
                     why=(
-                        f"{item.identifier!r} maps to {len(filenames)} files; "
-                        "exactly one source file is required for round-tripping."
+                        f"Multiple TwinCAT objects map to the same output path "
+                        f"{st_rel}."
                     ),
-                    next_step="Split the item into file-local parts and retry.",
+                    next_step="Rename one of the TwinCAT objects so each output file is unique.",
                 )
+            extracted_blocks[st_rel] = code
 
-            source_filename = pathlib.Path(filenames[0]).resolve()
-            source_rel = _relative_to(source_filename, layout.source_root)
-            if source_rel is None:
-                raise _format_error(
-                    what="source root validation",
-                    where=source_filename,
-                    why=f"The source file is outside {layout.source_root}.",
-                    next_step=(
-                        "Move all TwinCAT project files under one project root before "
-                        "decoding."
-                    ),
+            for item, start_line, end_line in sections:
+                manifest_items.append(
+                    {
+                        "identifier": item.identifier,
+                        "object_identifier": object_identifier,
+                        "type": item.type.name,
+                        "grammar_rule": item.grammar_rule,
+                        "implicit_end": item.implicit_end,
+                        "source_path": _path_for_json(source_rel),
+                        "st_path": _path_for_json(st_rel),
+                        "st_start_line": start_line,
+                        "st_end_line": end_line,
+                        "st_group_size": len(sections),
+                        "st_group_implicit_end": implicit_end,
+                    }
                 )
-
-            code, _ = item.get_code_and_line_map()
-            st_rel = (
-                pathlib.Path(ST_DIRNAME)
-                / source_rel
-                / f"{source_index:04d}_{_sanitize_identifier(item.identifier)}.st"
-            )
-            _validate_st_syntax(output_dir / st_rel, item, code)
-            extracted_blocks.append((st_rel, code))
-
-            manifest_items.append(
-                {
-                    "identifier": item.identifier,
-                    "type": item.type.name,
-                    "grammar_rule": item.grammar_rule,
-                    "implicit_end": item.implicit_end,
-                    "source_path": _path_for_json(source_rel),
-                    "st_path": _path_for_json(st_rel),
-                }
-            )
 
     _prepare_output_directory(output_dir, overwrite, "output_path")
     native_root = output_dir / NATIVE_DIRNAME
@@ -753,7 +896,7 @@ def decode(
 
     shutil.copytree(layout.source_root, native_root)
     st_root.mkdir()
-    for st_rel, code in extracted_blocks:
+    for st_rel, code in extracted_blocks.items():
         st_path = output_dir / st_rel
         st_path.parent.mkdir(parents=True, exist_ok=True)
         st_path.write_text(code, encoding="utf-8")
@@ -787,6 +930,116 @@ def _source_items_by_identifier(
         for item in _flatten_items(loaded_item):
             result[item.identifier] = item
     return result
+
+
+def _is_implicit_end_line(line: str, implicit_end: str) -> bool:
+    stripped = line.strip()
+    if not stripped:
+        return False
+    return stripped.rstrip(";").casefold() == implicit_end.casefold()
+
+
+def _find_implicit_end_line(
+    *,
+    lines: list[str],
+    implicit_end: str,
+    st_path: pathlib.Path,
+    identifier: str,
+) -> int:
+    for index, line in enumerate(lines):
+        if _is_implicit_end_line(line, implicit_end):
+            return index
+    raise _format_error(
+        what="structured ST section validation",
+        where=st_path,
+        why=(
+            f"Could not find the {implicit_end!r} delimiter for "
+            f"{identifier!r}."
+        ),
+        next_step=(
+            "Restore the declaration end line in the combined .st file or "
+            "rerun decode."
+        ),
+    )
+
+
+def _extract_st_lines_by_manifest_range(
+    *,
+    lines: list[str],
+    manifest_item: dict[str, Any],
+    st_path: pathlib.Path,
+) -> str:
+    try:
+        start_line = int(manifest_item["st_start_line"])
+        end_line = int(manifest_item["st_end_line"])
+    except (KeyError, TypeError, ValueError) as ex:
+        raise _format_error(
+            what="structured manifest item validation",
+            where=st_path,
+            why="The manifest section line range is missing or invalid.",
+            next_step="Regenerate the structured folder with `blark project decode`.",
+        ) from ex
+
+    if start_line < 1 or end_line < start_line or end_line > len(lines):
+        raise _format_error(
+            what="structured ST section validation",
+            where=st_path,
+            why=(
+                f"The manifest section range {start_line}-{end_line} does not "
+                f"fit in the file's {len(lines)} lines."
+            ),
+            next_step="Restore the combined .st file or rerun decode.",
+        )
+
+    return "\n".join(lines[start_line - 1:end_line])
+
+
+def _extract_structured_st_code(
+    *,
+    structured_dir: pathlib.Path,
+    manifest_item: dict[str, Any],
+) -> tuple[pathlib.Path, str]:
+    st_path = structured_dir / _path_from_json(manifest_item["st_path"])
+    st_code = st_path.read_text(encoding="utf-8")
+
+    if "st_group_size" not in manifest_item:
+        return st_path, st_code
+
+    group_size = int(manifest_item.get("st_group_size", 1))
+    if group_size == 1:
+        return st_path, st_code
+
+    lines = st_code.splitlines()
+    group_implicit_end = manifest_item.get("st_group_implicit_end") or ""
+    if not group_implicit_end:
+        return (
+            st_path,
+            _extract_st_lines_by_manifest_range(
+                lines=lines,
+                manifest_item=manifest_item,
+                st_path=st_path,
+            ),
+        )
+
+    identifier = manifest_item["identifier"]
+    ident = util.Identifier.from_string(identifier)
+    delimiter_line = _find_implicit_end_line(
+        lines=lines,
+        implicit_end=group_implicit_end,
+        st_path=st_path,
+        identifier=identifier,
+    )
+
+    if ident.decl_impl == "declaration":
+        return st_path, "\n".join(lines[:delimiter_line + 1])
+
+    if ident.decl_impl == "implementation":
+        implementation_lines = lines[delimiter_line + 1:]
+        if implementation_lines and not implementation_lines[0].strip():
+            implementation_lines = implementation_lines[1:]
+        return st_path, "\n".join(implementation_lines)
+
+    return st_path, st_code
 
 
 def encode(
@@ -838,8 +1091,10 @@ def encode(
                     ),
                 ) from None
 
-            st_path = structured_dir / _path_from_json(manifest_item["st_path"])
-            st_code = st_path.read_text(encoding="utf-8")
+            st_path, st_code = _extract_structured_st_code(
+                structured_dir=structured_dir,
+                manifest_item=manifest_item,
+            )
             _validate_st_syntax(st_path, source_item, st_code)
             current_code, _ = source_item.get_code_and_line_map()
             if st_code == current_code:
