@@ -121,6 +121,18 @@ def test_format_cli(input_filename: str, kwargs: Dict[str, Any]):
             ["format", "--help"],
             id="format-help",
         ),
+        param(
+            ["project", "--help"],
+            id="project-help",
+        ),
+        param(
+            ["project", "decode", "--help"],
+            id="project-decode-help",
+        ),
+        param(
+            ["project", "encode", "--help"],
+            id="project-encode-help",
+        ),
     ]
 )
 def test_blark_main_help(monkeypatch, args: List[str]):
