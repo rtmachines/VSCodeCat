@@ -74,6 +74,17 @@ install directly from this repository like so:
 $ python -m pip install git+https://github.com/klauer/blark
 ```
 
+### Build a single-file Windows executable
+
+To build `blark.exe` as a single-file CLI on Windows:
+
+```bash
+$ python -m pip install -r requirements-dev.txt
+$ python -m PyInstaller --clean --noconfirm blark.spec
+```
+
+The generated executable will be written to `dist/blark.exe`.
+
 ## Sample runs
 
 Run the parser or experimental formatter utility.  Current supported file types

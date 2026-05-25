@@ -1,5 +1,7 @@
 # Optional dependency for JSON (de)serialization
 apischema
+# For building the single-file Windows executable:
+pyinstaller
 # For running the test suite:
 pytest
 pytest-cov
