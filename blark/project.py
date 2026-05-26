@@ -34,6 +34,7 @@ MANIFEST_FORMAT = "blark.twincat.project"
 MANIFEST_VERSION = 1
 NATIVE_DIRNAME = "native"
 ST_DIRNAME = "st"
+SECTION_MARKER_PREFIX = "blark"
 
 SUPPORTED_PROJECT_EXTENSIONS = {
     solution.Solution.file_extension.lower(),
@@ -61,6 +62,17 @@ class NativeProjectLayout:
     input_path: pathlib.Path
     source_root: pathlib.Path
     native_entry: pathlib.Path
+
+
+@dataclasses.dataclass(frozen=True)
+class StructuredTextSection:
+    """A structured-text section within a decoded object file."""
+
+    item: BlarkSourceItem
+    start_line: int
+    end_line: int
+    begin_marker: str = ""
+    end_marker: str = ""
 
 
 def build_arg_parser(argparser=None):
@@ -520,6 +532,8 @@ def _validate_object_path_part(value: str, identifier: str) -> str:
 
 def _get_object_identifier(item: BlarkSourceItem) -> str:
     ident = util.Identifier.from_string(item.identifier)
+    if ident.parts:
+        return ident.parts[0]
     return ident.dotted_name
 
 
@@ -612,14 +626,23 @@ def _group_implicit_end(parts: list[BlarkSourceItem]) -> str:
     return ""
 
 
+def _section_begin_marker(identifier: str) -> str:
+    return f"// {SECTION_MARKER_PREFIX}:begin {identifier}"
+
+
+def _section_end_marker(identifier: str) -> str:
+    return f"// {SECTION_MARKER_PREFIX}:end {identifier}"
+
+
 def _combine_object_parts(
     *,
     parts: list[BlarkSourceItem],
     st_path: pathlib.Path,
-) -> tuple[str, list[tuple[BlarkSourceItem, int, int]], str]:
+) -> tuple[str, list[StructuredTextSection], str]:
     blocks: list[str] = []
-    sections: list[tuple[BlarkSourceItem, int, int]] = []
+    sections: list[StructuredTextSection] = []
     next_line = 1
+    use_markers = len(parts) > 1
 
     for part in parts:
         code, _ = part.get_code_and_line_map()
@@ -629,12 +652,33 @@ def _combine_object_parts(
             blocks.append("")
             next_line += 1
 
+        begin_marker = ""
+        end_marker = ""
+        if use_markers:
+            begin_marker = _section_begin_marker(part.identifier)
+            end_marker = _section_end_marker(part.identifier)
+            blocks.append(begin_marker)
+            next_line += 1
+
         line_count = len(code.splitlines())
         start_line = next_line
         end_line = start_line + line_count - 1
         blocks.append(code)
         next_line += line_count
-        sections.append((part, start_line, end_line))
+
+        if use_markers:
+            blocks.append(end_marker)
+            next_line += 1
+
+        sections.append(
+            StructuredTextSection(
+                item=part,
+                start_line=start_line,
+                end_line=end_line,
+                begin_marker=begin_marker,
+                end_marker=end_marker,
+            )
+        )
 
     return "\n".join(blocks), sections, _group_implicit_end(parts)
 
@@ -866,22 +910,29 @@ def decode(
                 )
             extracted_blocks[st_rel] = code
 
-            for item, start_line, end_line in sections:
-                manifest_items.append(
-                    {
-                        "identifier": item.identifier,
-                        "object_identifier": object_identifier,
-                        "type": item.type.name,
-                        "grammar_rule": item.grammar_rule,
-                        "implicit_end": item.implicit_end,
-                        "source_path": _path_for_json(source_rel),
-                        "st_path": _path_for_json(st_rel),
-                        "st_start_line": start_line,
-                        "st_end_line": end_line,
-                        "st_group_size": len(sections),
-                        "st_group_implicit_end": implicit_end,
-                    }
-                )
+            for section in sections:
+                item = section.item
+                manifest_item = {
+                    "identifier": item.identifier,
+                    "object_identifier": object_identifier,
+                    "type": item.type.name,
+                    "grammar_rule": item.grammar_rule,
+                    "implicit_end": item.implicit_end,
+                    "source_path": _path_for_json(source_rel),
+                    "st_path": _path_for_json(st_rel),
+                    "st_start_line": section.start_line,
+                    "st_end_line": section.end_line,
+                    "st_group_size": len(sections),
+                    "st_group_implicit_end": implicit_end,
+                }
+                if section.begin_marker and section.end_marker:
+                    manifest_item.update(
+                        {
+                            "st_begin_marker": section.begin_marker,
+                            "st_end_marker": section.end_marker,
+                        }
+                    )
+                manifest_items.append(manifest_item)
 
     _prepare_output_directory(output_dir, overwrite, "output_path")
     native_root = output_dir / NATIVE_DIRNAME
@@ -994,6 +1045,63 @@ def _extract_st_lines_by_manifest_range(
     return "\n".join(lines[start_line - 1:end_line])
 
 
+def _extract_st_lines_by_markers(
+    *,
+    lines: list[str],
+    manifest_item: dict[str, Any],
+    st_path: pathlib.Path,
+) -> Optional[str]:
+    begin_marker = manifest_item.get("st_begin_marker")
+    end_marker = manifest_item.get("st_end_marker")
+    if not begin_marker and not end_marker:
+        return None
+    if not begin_marker or not end_marker:
+        raise _format_error(
+            what="structured manifest item validation",
+            where=st_path,
+            why="The manifest section marker pair is incomplete.",
+            next_step="Regenerate the structured folder with `blark project decode`.",
+        )
+
+    begin_matches = [
+        index for index, line in enumerate(lines) if line.strip() == begin_marker
+    ]
+    end_matches = [
+        index for index, line in enumerate(lines) if line.strip() == end_marker
+    ]
+    if len(begin_matches) != 1 or len(end_matches) != 1:
+        raise _format_error(
+            what="structured ST section validation",
+            where=st_path,
+            why=(
+                f"Expected exactly one marker pair for "
+                f"{manifest_item['identifier']!r}."
+            ),
+            next_step=(
+                "Restore the blark section marker comments in the decoded .st "
+                "file or rerun decode."
+            ),
+        )
+
+    begin_index = begin_matches[0]
+    end_index = end_matches[0]
+    if end_index <= begin_index:
+        raise _format_error(
+            what="structured ST section validation",
+            where=st_path,
+            why=(
+                f"The end marker appears before the begin marker for "
+                f"{manifest_item['identifier']!r}."
+            ),
+            next_step=(
+                "Move the blark section marker comments around the intended "
+                "Structured Text block."
+            ),
+        )
+
+    return "\n".join(lines[begin_index + 1:end_index])
+
+
 def _extract_structured_st_code(
     *,
     structured_dir: pathlib.Path,
@@ -1001,6 +1109,15 @@ def _extract_structured_st_code(
 ) -> tuple[pathlib.Path, str]:
     st_path = structured_dir / _path_from_json(manifest_item["st_path"])
     st_code = st_path.read_text(encoding="utf-8")
+    lines = st_code.splitlines()
+
+    marked_code = _extract_st_lines_by_markers(
+        lines=lines,
+        manifest_item=manifest_item,
+        st_path=st_path,
+    )
+    if marked_code is not None:
+        return st_path, marked_code
 
     if "st_group_size" not in manifest_item:
         return st_path, st_code
@@ -1009,7 +1126,6 @@ def _extract_structured_st_code(
     if group_size == 1:
         return st_path, st_code
 
-    lines = st_code.splitlines()
     group_implicit_end = manifest_item.get("st_group_implicit_end") or ""
     if not group_implicit_end:
         return (

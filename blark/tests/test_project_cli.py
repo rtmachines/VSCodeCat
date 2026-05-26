@@ -82,9 +82,9 @@ def test_project_decode_preserves_nested_twincat_object_layout(
 ):
     structured = tmp_path / "structured"
 
-    project.decode(LCLS_GENERAL_SOLUTION, structured)
+    manifest = project.decode(LCLS_GENERAL_SOLUTION, structured)
 
-    assert (
+    fb_st = (
         structured
         / project.ST_DIRNAME
         / "LCLSGeneral"
@@ -92,8 +92,9 @@ def test_project_decode_preserves_nested_twincat_object_layout(
         / "POUs"
         / "Logger"
         / "FB_LogHandler.st"
-    ).is_file()
-    action_st = (
+    )
+    assert fb_st.is_file()
+    assert not (
         structured
         / project.ST_DIRNAME
         / "LCLSGeneral"
@@ -102,9 +103,40 @@ def test_project_decode_preserves_nested_twincat_object_layout(
         / "Logger"
         / "FB_LogHandler"
         / "CircuitBreaker.st"
+    ).exists()
+    fb_code = fb_st.read_text(encoding="utf-8")
+    assert "FUNCTION_BLOCK FB_LogHandler" in fb_code
+    assert "// Global log circuit breaker" in fb_code
+    assert {
+        item["st_path"]
+        for item in manifest["items"]
+        if item["object_identifier"] == "FB_LogHandler"
+    } == {
+        "st/LCLSGeneral/LCLSGeneral/POUs/Logger/FB_LogHandler.st",
+    }
+
+    interface_st = (
+        structured
+        / project.ST_DIRNAME
+        / "LCLSGeneral"
+        / "LCLSGeneral"
+        / "Interfaces"
+        / "I_Interface.st"
     )
-    assert action_st.is_file()
-    assert "// Global log circuit breaker" in action_st.read_text(encoding="utf-8")
+    assert interface_st.is_file()
+    assert not (
+        structured
+        / project.ST_DIRNAME
+        / "LCLSGeneral"
+        / "LCLSGeneral"
+        / "Interfaces"
+        / "I_Interface"
+        / "Method1.st"
+    ).exists()
+    interface_code = interface_st.read_text(encoding="utf-8")
+    assert "INTERFACE I_Interface" in interface_code
+    assert "METHOD Method1 : BOOL" in interface_code
+    assert "PROPERTY Property1 : INT" in interface_code
 
 
 def test_project_encode_applies_structured_text_change(tmp_path: pathlib.Path):
@@ -130,6 +162,39 @@ def test_project_encode_applies_structured_text_change(tmp_path: pathlib.Path):
     assert "fOutput := fInput + 1.0;" in encoded_source.read_text(
         encoding="utf-8-sig"
     )
+
+
+def test_project_encode_applies_nested_member_change_from_combined_st(
+    tmp_path: pathlib.Path,
+):
+    structured = tmp_path / "structured"
+    native_output = tmp_path / "native_output"
+
+    manifest = project.decode(LCLS_GENERAL_SOLUTION, structured)
+    action = next(
+        item
+        for item in manifest["items"]
+        if item["identifier"] == "FB_LogHandler.CircuitBreaker"
+    )
+    st_path = structured / action["st_path"]
+    st_code = st_path.read_text(encoding="utf-8")
+    st_path.write_text(
+        st_code.replace(
+            "FUNCTION_BLOCK FB_LogHandler",
+            "FUNCTION_BLOCK FB_LogHandler\n// inserted declaration comment",
+        ).replace(
+            "GVL_Logger.nGlobAccEvents := 0;",
+            "GVL_Logger.nGlobAccEvents := 1;",
+        ),
+        encoding="utf-8",
+    )
+
+    project.encode(structured, native_output)
+
+    encoded_source = native_output / action["source_path"]
+    encoded_code = encoded_source.read_text(encoding="utf-8-sig")
+    assert "// inserted declaration comment" in encoded_code
+    assert "GVL_Logger.nGlobAccEvents := 1;" in encoded_code
 
 
 def test_project_cli_decode_via_top_level(

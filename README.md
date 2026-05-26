@@ -167,7 +167,8 @@ Use `project` when you want a round-trip friendly representation of TwinCAT proj
 
 - Validates the input path, extension, TwinCAT layout, and supported file types.
 - Copies the native project tree into `native/`.
-- Extracts editable Structured Text blocks into `st/`.
+- Extracts editable Structured Text into `st/`, using one `.st` file per TwinCAT source object.
+- Keeps function block/interface declarations, implementations, methods, properties, and actions together in that object file with `// blark:begin ...` section markers.
 - Writes a manifest file, `blark_twincat.json`, which records how each `.st` file maps back to the native TwinCAT source.
 - Fails loudly on unsupported compile items, malformed XML, inconsistent project references, or overwrite conflicts.
 
