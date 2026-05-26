@@ -3,14 +3,17 @@
 
 The structured representation created by ``decode`` keeps a byte-for-byte copy
 of the native TwinCAT project tree under ``native/`` and extracts editable
-Structured Text snippets under ``st/``.  ``encode`` validates the manifest and
-all extracted snippets before applying changed snippets back to a copied native
+Structured Text snippets under ``src/``.  Machine-owned metadata is written
+under ``.blark/`` so humans can edit source files in VSCode without sharing a
+folder with caches and manifests.  ``encode`` validates the manifest and all
+extracted snippets before applying changed snippets back to a copied native
 tree.
 """
 from __future__ import annotations
 
 import argparse
 import dataclasses
+import hashlib
 import json
 import os
 import pathlib
@@ -29,11 +32,24 @@ from .parse import parse_source_code
 
 DESCRIPTION = __doc__
 
-MANIFEST_FILENAME = "blark_twincat.json"
+ROOT_CONFIG_FILENAME = "blark.json"
+ROOT_CONFIG_FORMAT = "blark.project"
+ROOT_CONFIG_VERSION = 1
+METADATA_DIRNAME = ".blark"
+MANIFEST_FILENAME = "manifest.json"
+LEGACY_MANIFEST_FILENAME = "blark_twincat.json"
 MANIFEST_FORMAT = "blark.twincat.project"
-MANIFEST_VERSION = 1
+MANIFEST_VERSION = 2
+SUPPORTED_MANIFEST_VERSIONS = {1, 2}
 NATIVE_DIRNAME = "native"
-ST_DIRNAME = "st"
+SOURCE_DIRNAME = "src"
+LEGACY_ST_DIRNAME = "st"
+# Backward-compatible public alias for callers that inspect legacy folders.
+ST_DIRNAME = LEGACY_ST_DIRNAME
+INDEX_FILENAME = "index.json"
+DIAGNOSTICS_FILENAME = "diagnostics.json"
+SCHEMAS_DIRNAME = "schemas"
+MANIFEST_SCHEMA_FILENAME = "manifest.schema.json"
 SECTION_MARKER_PREFIX = "blark"
 
 SUPPORTED_PROJECT_EXTENSIONS = {
@@ -117,7 +133,10 @@ def build_arg_parser(argparser=None):
     encode_parser.add_argument(
         "input_path",
         type=str,
-        help=f"Structured folder containing {MANIFEST_FILENAME}",
+        help=(
+            "Structured folder containing "
+            f"{METADATA_DIRNAME}/{MANIFEST_FILENAME}"
+        ),
     )
     encode_parser.add_argument(
         "output_path",
@@ -158,6 +177,50 @@ def _path_for_json(path: pathlib.Path) -> str:
 
 def _path_from_json(value: str) -> pathlib.Path:
     return pathlib.Path(*pathlib.PurePosixPath(value).parts)
+
+
+def _metadata_manifest_relpath() -> pathlib.Path:
+    return pathlib.Path(METADATA_DIRNAME) / MANIFEST_FILENAME
+
+
+def _metadata_manifest_path(structured_dir: pathlib.Path) -> pathlib.Path:
+    return structured_dir / _metadata_manifest_relpath()
+
+
+def _manifest_path_candidates(structured_dir: pathlib.Path) -> list[pathlib.Path]:
+    return [
+        _metadata_manifest_path(structured_dir),
+        structured_dir / LEGACY_MANIFEST_FILENAME,
+    ]
+
+
+def _manifest_item_st_path_value(item: dict[str, Any]) -> Optional[str]:
+    return item.get("st_path") or item.get("path")
+
+
+def _manifest_item_source_path_value(item: dict[str, Any]) -> Optional[str]:
+    return item.get("source_path") or item.get("nativePath")
+
+
+def _manifest_item_identifier(item: dict[str, Any]) -> Optional[str]:
+    return item.get("identifier") or item.get("nativeIdentifier")
+
+
+def _manifest_native_root(manifest: dict[str, Any]) -> str:
+    return manifest.get("native_root") or manifest.get("nativeRoot") or NATIVE_DIRNAME
+
+
+def _manifest_source_root(manifest: dict[str, Any]) -> str:
+    return (
+        manifest.get("source_root")
+        or manifest.get("sourceRoot")
+        or manifest.get("st_root")
+        or (LEGACY_ST_DIRNAME if manifest.get("version") == 1 else SOURCE_DIRNAME)
+    )
+
+
+def _content_hash(contents: str) -> str:
+    return f"sha256:{hashlib.sha256(contents.encode('utf-8')).hexdigest()}"
 
 
 def _resolve_existing_path(path: Union[str, pathlib.Path], argument: str) -> pathlib.Path:
@@ -572,6 +635,107 @@ def _st_path_for_object(
     return st_rel / f"{object_parts[-1]}.st"
 
 
+def _source_root_for_object(
+    *,
+    source_rel: pathlib.Path,
+    object_identifier: str,
+) -> pathlib.Path:
+    ident = util.Identifier.from_string(object_identifier)
+    object_parts = [
+        _validate_object_path_part(part, object_identifier)
+        for part in ident.parts
+    ]
+    if not object_parts:
+        object_parts = [_sanitize_identifier(source_rel.stem)]
+
+    source_root = pathlib.Path(SOURCE_DIRNAME) / source_rel.parent
+    for part in object_parts:
+        source_root /= part
+    return source_root
+
+
+def _relative_member_parts(
+    *,
+    identifier: str,
+    object_identifier: str,
+) -> list[str]:
+    ident = util.Identifier.from_string(identifier)
+    object_ident = util.Identifier.from_string(object_identifier)
+    if object_ident.parts and ident.parts[: len(object_ident.parts)] == object_ident.parts:
+        return ident.parts[len(object_ident.parts) :]
+    return ident.parts
+
+
+def _append_path_parts(path: pathlib.Path, parts: Iterable[str]) -> pathlib.Path:
+    for part in parts:
+        path /= part
+    return path
+
+
+def _safe_member_parts(parts: Iterable[str], identifier: str) -> list[str]:
+    return [_validate_object_path_part(part, identifier) for part in parts]
+
+
+def _part_filename(decl_impl: Optional[str], default: str) -> str:
+    return f"{decl_impl or default}.st"
+
+
+def _source_path_for_item(
+    *,
+    source_rel: pathlib.Path,
+    object_identifier: str,
+    item: BlarkSourceItem,
+) -> pathlib.Path:
+    root = _source_root_for_object(
+        source_rel=source_rel,
+        object_identifier=object_identifier,
+    )
+    ident = util.Identifier.from_string(item.identifier)
+    member_parts = _safe_member_parts(
+        _relative_member_parts(
+            identifier=item.identifier,
+            object_identifier=object_identifier,
+        ),
+        item.identifier,
+    )
+
+    if not member_parts:
+        return root / _part_filename(ident.decl_impl, item.type.name)
+
+    if item.type == util.SourceType.action:
+        action_path = _append_path_parts(root / "actions", member_parts)
+        if ident.decl_impl:
+            return action_path / _part_filename(ident.decl_impl, "implementation")
+        return action_path.with_suffix(".st")
+
+    if item.type == util.SourceType.method:
+        method_path = _append_path_parts(root / "methods", member_parts)
+        return method_path / _part_filename(ident.decl_impl, "method")
+
+    if item.type in {util.SourceType.property_get, util.SourceType.property_set}:
+        accessor = "get" if item.type == util.SourceType.property_get else "set"
+        property_parts = member_parts
+        if property_parts and property_parts[-1].lower() in {"get", "set"}:
+            accessor = property_parts[-1].lower()
+            property_parts = property_parts[:-1]
+        property_path = _append_path_parts(root / "properties", property_parts)
+        return property_path / accessor / _part_filename(ident.decl_impl, "property")
+
+    member_path = _append_path_parts(root / "members", member_parts)
+    if ident.decl_impl:
+        return member_path / _part_filename(ident.decl_impl, item.type.name)
+    return member_path.with_suffix(".st")
+
+
+def _manifest_part(item: BlarkSourceItem) -> str:
+    ident = util.Identifier.from_string(item.identifier)
+    if ident.decl_impl:
+        return ident.decl_impl
+    if item.type == util.SourceType.action:
+        return "action"
+    return item.type.name
+
+
 def _single_source_filename(
     *,
     parts: list[BlarkSourceItem],
@@ -703,12 +867,22 @@ def _validate_st_syntax(st_path: pathlib.Path, item: BlarkSourceItem, code: str)
 
 
 def _load_manifest(structured_dir: pathlib.Path) -> dict[str, Any]:
-    manifest_path = structured_dir / MANIFEST_FILENAME
+    manifest_path = next(
+        (
+            candidate
+            for candidate in _manifest_path_candidates(structured_dir)
+            if candidate.exists()
+        ),
+        _metadata_manifest_path(structured_dir),
+    )
     if not manifest_path.exists():
         raise _format_error(
             what="structured manifest validation",
             where=manifest_path,
-            why=f"{MANIFEST_FILENAME} is missing.",
+            why=(
+                f"{METADATA_DIRNAME}/{MANIFEST_FILENAME} is missing. "
+                f"Legacy {LEGACY_MANIFEST_FILENAME} was not found either."
+            ),
             next_step="Run `blark project decode` first or restore the manifest file.",
         )
     if not manifest_path.is_file():
@@ -737,7 +911,7 @@ def _load_manifest(structured_dir: pathlib.Path) -> dict[str, Any]:
             why=f"Unexpected manifest format {manifest.get('format')!r}.",
             next_step=f"Use a manifest with format {MANIFEST_FORMAT!r}.",
         )
-    if manifest.get("version") != MANIFEST_VERSION:
+    if manifest.get("version") not in SUPPORTED_MANIFEST_VERSIONS:
         raise _format_error(
             what="structured manifest validation",
             where=manifest_path,
@@ -758,8 +932,8 @@ def _validate_manifest_paths(
     structured_dir: pathlib.Path,
     manifest: dict[str, Any],
 ) -> tuple[pathlib.Path, pathlib.Path]:
-    native_root = structured_dir / manifest.get("native_root", NATIVE_DIRNAME)
-    st_root = structured_dir / manifest.get("st_root", ST_DIRNAME)
+    native_root = structured_dir / _manifest_native_root(manifest)
+    st_root = structured_dir / _manifest_source_root(manifest)
     if not native_root.is_dir():
         raise _format_error(
             what="structured native folder validation",
@@ -772,7 +946,7 @@ def _validate_manifest_paths(
             what="structured ST folder validation",
             where=st_root,
             why="The extracted Structured Text folder is missing.",
-            next_step="Restore the st/ folder or rerun decode.",
+            next_step="Restore the editable source folder or rerun decode.",
         )
 
     declared_st_paths = set()
@@ -785,14 +959,17 @@ def _validate_manifest_paths(
                 next_step="Regenerate the structured folder or fix the manifest item.",
             )
 
-        st_path_value = item.get("st_path")
-        source_path_value = item.get("source_path")
-        identifier = item.get("identifier")
+        st_path_value = _manifest_item_st_path_value(item)
+        source_path_value = _manifest_item_source_path_value(item)
+        identifier = _manifest_item_identifier(item)
         if not st_path_value or not source_path_value or not identifier:
             raise _format_error(
                 what="structured manifest item validation",
                 where=f"{MANIFEST_FILENAME}:items[{index}]",
-                why="The item must include st_path, source_path, and identifier.",
+                why=(
+                    "The item must include editable path, native path, and "
+                    "native identifier fields."
+                ),
                 next_step="Regenerate the structured folder or fix the manifest item.",
             )
 
@@ -802,8 +979,11 @@ def _validate_manifest_paths(
             raise _format_error(
                 what="structured manifest item validation",
                 where=st_path,
-                why="The manifest points to a .st file outside the st/ folder.",
-                next_step="Move the file under st/ or regenerate the structured folder.",
+                why="The manifest points to a .st file outside the editable source folder.",
+                next_step=(
+                    "Move the file under the configured source folder or regenerate "
+                    "the structured folder."
+                ),
             )
         if _relative_to(source_path, native_root) is None:
             raise _format_error(
@@ -854,7 +1034,10 @@ def _validate_manifest_paths(
         raise _format_error(
             what="structured ST validation",
             where=extra,
-            why="A .st file exists under st/ but is not declared in the manifest.",
+            why=(
+                "A .st file exists under the editable source folder but is not "
+                "declared in the manifest."
+            ),
             next_step=(
                 "Remove the extra file or regenerate the structured folder so every "
                 ".st file has round-trip metadata."
@@ -862,6 +1045,118 @@ def _validate_manifest_paths(
         )
 
     return native_root, st_root
+
+
+def _write_json(path: pathlib.Path, contents: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "wt", encoding="utf-8") as fp:
+        json.dump(contents, fp, indent=2)
+        fp.write("\n")
+
+
+def _readme_contents() -> str:
+    return "\n".join(
+        (
+            "# blark structured project",
+            "",
+            "Edit Structured Text files under `src/`.",
+            "Do not edit files under `.blark/`; they are generated metadata for tools.",
+            "The `native/` folder is the copied TwinCAT project used for round-trip encoding.",
+            "",
+            "Typical workflow:",
+            "",
+            "```bash",
+            "blark project encode . path/to/native-output",
+            "```",
+            "",
+        )
+    )
+
+
+def _root_config(manifest: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "format": ROOT_CONFIG_FORMAT,
+        "version": ROOT_CONFIG_VERSION,
+        "manifest": _path_for_json(_metadata_manifest_relpath()),
+        "sourceRoot": manifest["sourceRoot"],
+        "nativeRoot": manifest["nativeRoot"],
+        "nativeEntry": manifest["nativeEntry"],
+    }
+
+
+def _index_contents(manifest: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "format": "blark.twincat.index",
+        "version": 1,
+        "items": [
+            {
+                "id": item["id"],
+                "path": item["path"],
+                "nativePath": item["nativePath"],
+                "nativeIdentifier": item["nativeIdentifier"],
+                "objectId": item["objectId"],
+                "kind": item["kind"],
+                "part": item["part"],
+                "grammarRule": item["grammarRule"],
+                "contentHash": item["contentHash"],
+            }
+            for item in manifest["items"]
+        ],
+    }
+
+
+def _diagnostics_contents() -> dict[str, Any]:
+    return {
+        "format": "blark.diagnostics",
+        "version": 1,
+        "diagnostics": [],
+    }
+
+
+def _manifest_schema_contents() -> dict[str, Any]:
+    return {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "title": "blark project manifest",
+        "type": "object",
+        "required": ["format", "version", "sourceRoot", "nativeRoot", "items"],
+        "properties": {
+            "format": {"const": MANIFEST_FORMAT},
+            "version": {"type": "integer"},
+            "sourceRoot": {"type": "string"},
+            "nativeRoot": {"type": "string"},
+            "nativeEntry": {"type": "string"},
+            "items": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "required": [
+                        "id",
+                        "path",
+                        "nativePath",
+                        "nativeIdentifier",
+                        "kind",
+                        "part",
+                        "grammarRule",
+                    ],
+                },
+            },
+        },
+    }
+
+
+def _write_structured_metadata(output_dir: pathlib.Path, manifest: dict[str, Any]) -> None:
+    metadata_root = output_dir / METADATA_DIRNAME
+    _write_json(output_dir / ROOT_CONFIG_FILENAME, _root_config(manifest))
+    (output_dir / "README.md").write_text(_readme_contents(), encoding="utf-8")
+    _write_json(metadata_root / MANIFEST_FILENAME, manifest)
+    _write_json(metadata_root / INDEX_FILENAME, _index_contents(manifest))
+    _write_json(metadata_root / DIAGNOSTICS_FILENAME, _diagnostics_contents())
+    _write_json(
+        metadata_root / SCHEMAS_DIRNAME / MANIFEST_SCHEMA_FILENAME,
+        _manifest_schema_contents(),
+    )
+    (metadata_root / "cache" / "ast").mkdir(parents=True, exist_ok=True)
+    (metadata_root / "cache" / "symbols").mkdir(parents=True, exist_ok=True)
 
 
 def decode(
@@ -876,6 +1171,7 @@ def decode(
 
     manifest_items: list[dict[str, Any]] = []
     extracted_blocks: dict[pathlib.Path, str] = {}
+    extracted_block_keys: dict[str, pathlib.Path] = {}
     loaded_items = load_file_by_name(layout.input_path)
     for loaded_item in loaded_items:
         for object_identifier, object_parts in _group_parts_by_object(loaded_item):
@@ -888,66 +1184,79 @@ def decode(
                 source_filename=source_filename,
                 source_root=layout.source_root,
             )
-            st_rel = _st_path_for_object(
-                source_rel=source_rel,
-                object_identifier=object_identifier,
-            )
-            code, sections, implicit_end = _combine_object_parts(
-                parts=object_parts,
-                st_path=output_dir / st_rel,
-            )
-
-            existing_code = extracted_blocks.get(st_rel)
-            if existing_code is not None and existing_code != code:
-                raise _format_error(
-                    what="Structured Text output validation",
-                    where=output_dir / st_rel,
-                    why=(
-                        f"Multiple TwinCAT objects map to the same output path "
-                        f"{st_rel}."
-                    ),
-                    next_step="Rename one of the TwinCAT objects so each output file is unique.",
+            for item in object_parts:
+                st_rel = _source_path_for_item(
+                    source_rel=source_rel,
+                    object_identifier=object_identifier,
+                    item=item,
                 )
-            extracted_blocks[st_rel] = code
+                code, _ = item.get_code_and_line_map()
+                st_path = output_dir / st_rel
+                _validate_st_syntax(st_path, item, code)
 
-            for section in sections:
-                item = section.item
-                manifest_item = {
-                    "identifier": item.identifier,
-                    "object_identifier": object_identifier,
-                    "type": item.type.name,
-                    "grammar_rule": item.grammar_rule,
-                    "implicit_end": item.implicit_end,
-                    "source_path": _path_for_json(source_rel),
-                    "st_path": _path_for_json(st_rel),
-                    "st_start_line": section.start_line,
-                    "st_end_line": section.end_line,
-                    "st_group_size": len(sections),
-                    "st_group_implicit_end": implicit_end,
-                }
-                if section.begin_marker and section.end_marker:
-                    manifest_item.update(
-                        {
-                            "st_begin_marker": section.begin_marker,
-                            "st_end_marker": section.end_marker,
-                        }
+                st_key = _path_for_json(st_rel).lower()
+                if st_key in extracted_block_keys:
+                    raise _format_error(
+                        what="Structured Text output validation",
+                        where=st_path,
+                        why=(
+                            "Multiple TwinCAT source items map to the same "
+                            f"output path {st_rel}."
+                        ),
+                        next_step=(
+                            "Rename one of the TwinCAT objects so each output "
+                            "file is unique."
+                        ),
                     )
+                extracted_block_keys[st_key] = st_rel
+                extracted_blocks[st_rel] = code
+
+                st_path_json = _path_for_json(st_rel)
+                source_path_json = _path_for_json(source_rel)
+                manifest_item = {
+                    "id": f"{source_path_json}::{item.identifier}",
+                    "identifier": item.identifier,
+                    "nativeIdentifier": item.identifier,
+                    "object_identifier": object_identifier,
+                    "objectId": object_identifier,
+                    "type": item.type.name,
+                    "kind": item.type.name,
+                    "part": _manifest_part(item),
+                    "grammar_rule": item.grammar_rule,
+                    "grammarRule": item.grammar_rule,
+                    "implicit_end": item.implicit_end,
+                    "source_path": source_path_json,
+                    "nativePath": source_path_json,
+                    "st_path": st_path_json,
+                    "path": st_path_json,
+                    "contentHash": _content_hash(code),
+                }
                 manifest_items.append(manifest_item)
 
     _prepare_output_directory(output_dir, overwrite, "output_path")
     native_root = output_dir / NATIVE_DIRNAME
-    st_root = output_dir / ST_DIRNAME
-    if native_root.exists() or st_root.exists():
+    st_root = output_dir / SOURCE_DIRNAME
+    metadata_root = output_dir / METADATA_DIRNAME
+    existing_reserved = [
+        dirname
+        for dirname in (NATIVE_DIRNAME, SOURCE_DIRNAME, METADATA_DIRNAME)
+        if (output_dir / dirname).exists()
+    ]
+    if existing_reserved:
         raise _format_error(
             what="structured output validation",
             where=output_dir,
-            why="The output folder already contains native/ or st/.",
+            why=(
+                "The output folder already contains reserved structured "
+                f"entries: {', '.join(existing_reserved)}."
+            ),
             next_step="Choose a fresh folder or pass --overwrite.",
         )
 
     shutil.copytree(layout.source_root, native_root)
     st_root.mkdir()
-    for st_rel, code in extracted_blocks.items():
+    metadata_root.mkdir()
+    for st_rel, code in sorted(extracted_blocks.items(), key=lambda item: str(item[0])):
         st_path = output_dir / st_rel
         st_path.parent.mkdir(parents=True, exist_ok=True)
         st_path.write_text(code, encoding="utf-8")
@@ -956,15 +1265,16 @@ def decode(
         "format": MANIFEST_FORMAT,
         "version": MANIFEST_VERSION,
         "native_root": NATIVE_DIRNAME,
-        "st_root": ST_DIRNAME,
+        "nativeRoot": NATIVE_DIRNAME,
+        "source_root": SOURCE_DIRNAME,
+        "sourceRoot": SOURCE_DIRNAME,
+        "st_root": SOURCE_DIRNAME,
         "native_entry": _path_for_json(layout.native_entry),
+        "nativeEntry": _path_for_json(layout.native_entry),
         "input_path": str(layout.input_path),
         "items": manifest_items,
     }
-    manifest_path = output_dir / MANIFEST_FILENAME
-    with open(manifest_path, "wt", encoding="utf-8") as fp:
-        json.dump(manifest, fp, indent=2)
-        fp.write("\n")
+    _write_structured_metadata(output_dir, manifest)
 
     print(
         f"Decoded {layout.input_path} to {output_dir} "
@@ -1107,7 +1417,15 @@ def _extract_structured_st_code(
     structured_dir: pathlib.Path,
     manifest_item: dict[str, Any],
 ) -> tuple[pathlib.Path, str]:
-    st_path = structured_dir / _path_from_json(manifest_item["st_path"])
+    st_path_value = _manifest_item_st_path_value(manifest_item)
+    if not st_path_value:
+        raise _format_error(
+            what="structured manifest item validation",
+            where=MANIFEST_FILENAME,
+            why="The manifest item does not include an editable source path.",
+            next_step="Regenerate the structured folder with `blark project decode`.",
+        )
+    st_path = structured_dir / _path_from_json(st_path_value)
     st_code = st_path.read_text(encoding="utf-8")
     lines = st_code.splitlines()
 
@@ -1174,7 +1492,15 @@ def encode(
 
     items_by_source: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for item in manifest["items"]:
-        items_by_source[item["source_path"]].append(item)
+        source_path_value = _manifest_item_source_path_value(item)
+        if source_path_value is None:
+            raise _format_error(
+                what="structured manifest item validation",
+                where=MANIFEST_FILENAME,
+                why="The manifest item does not include a native source path.",
+                next_step="Regenerate the structured folder with `blark project decode`.",
+            )
+        items_by_source[source_path_value].append(item)
 
     changes_by_source: dict[str, list[tuple[str, str, pathlib.Path]]] = defaultdict(list)
     changed_blocks = 0
@@ -1193,7 +1519,14 @@ def encode(
 
         source_items = _source_items_by_identifier(source)
         for manifest_item in manifest_items:
-            identifier = manifest_item["identifier"]
+            identifier = _manifest_item_identifier(manifest_item)
+            if identifier is None:
+                raise _format_error(
+                    what="structured manifest item validation",
+                    where=native_source_path,
+                    why="The manifest item does not include a native identifier.",
+                    next_step="Regenerate the structured folder with `blark project decode`.",
+                )
             try:
                 source_item = source_items[identifier]
             except KeyError:

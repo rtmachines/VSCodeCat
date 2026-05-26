@@ -19,7 +19,12 @@ LCLS_GENERAL_SOLUTION = (
 
 
 def load_manifest(structured: pathlib.Path) -> dict:
-    with open(structured / project.MANIFEST_FILENAME, "rt", encoding="utf-8") as fp:
+    manifest_path = (
+        structured
+        / project.METADATA_DIRNAME
+        / project.MANIFEST_FILENAME
+    )
+    with open(manifest_path, "rt", encoding="utf-8") as fp:
         return json.load(fp)
 
 
@@ -29,8 +34,13 @@ def test_project_decode_encode_round_trip(tmp_path: pathlib.Path):
 
     manifest = project.decode(SAMPLE_SOLUTION, structured)
     assert manifest["format"] == project.MANIFEST_FORMAT
+    assert manifest["version"] == project.MANIFEST_VERSION
     assert len(manifest["items"]) == 2
-    assert (structured / project.MANIFEST_FILENAME).is_file()
+    assert (
+        structured / project.METADATA_DIRNAME / project.MANIFEST_FILENAME
+    ).is_file()
+    assert (structured / project.METADATA_DIRNAME / project.INDEX_FILENAME).is_file()
+    assert (structured / project.ROOT_CONFIG_FILENAME).is_file()
     assert (structured / project.NATIVE_DIRNAME / manifest["native_entry"]).is_file()
 
     project.encode(structured, native_output)
@@ -46,35 +56,40 @@ def test_project_decode_preserves_twincat_object_layout(tmp_path: pathlib.Path):
 
     manifest = project.decode(SAMPLE_SOLUTION, structured)
 
-    expected_st = (
+    expected_declaration = (
         structured
-        / project.ST_DIRNAME
+        / project.SOURCE_DIRNAME
+        / "SampleLibraryA"
+        / "SampleLibraryA"
+        / "POUs"
+        / "FB_SampleA_Test"
+        / "declaration.st"
+    )
+    expected_implementation = expected_declaration.with_name("implementation.st")
+    assert expected_declaration.is_file()
+    assert expected_implementation.is_file()
+    assert not (
+        structured
+        / project.SOURCE_DIRNAME
         / "SampleLibraryA"
         / "SampleLibraryA"
         / "POUs"
         / "FB_SampleA_Test.st"
-    )
-    assert expected_st.is_file()
-    assert not (
-        structured
-        / project.ST_DIRNAME
-        / "SampleLibraryA"
-        / "SampleLibraryA"
-        / "POUs"
-        / "FB_SampleA_Test.TcPOU"
     ).exists()
     assert {
-        item["st_path"]
+        item["path"]
         for item in manifest["items"]
         if item["object_identifier"] == "FB_SampleA_Test"
     } == {
-        "st/SampleLibraryA/SampleLibraryA/POUs/FB_SampleA_Test.st",
+        "src/SampleLibraryA/SampleLibraryA/POUs/FB_SampleA_Test/declaration.st",
+        "src/SampleLibraryA/SampleLibraryA/POUs/FB_SampleA_Test/implementation.st",
     }
 
-    st_code = expected_st.read_text(encoding="utf-8")
-    assert "FUNCTION_BLOCK FB_SampleA_Test" in st_code
-    assert "END_FUNCTION_BLOCK" in st_code
-    assert "fOutput := fInput;" in st_code
+    declaration_code = expected_declaration.read_text(encoding="utf-8")
+    implementation_code = expected_implementation.read_text(encoding="utf-8")
+    assert "FUNCTION_BLOCK FB_SampleA_Test" in declaration_code
+    assert "END_FUNCTION_BLOCK" in declaration_code
+    assert "fOutput := fInput;" in implementation_code
 
 
 def test_project_decode_preserves_nested_twincat_object_layout(
@@ -84,59 +99,67 @@ def test_project_decode_preserves_nested_twincat_object_layout(
 
     manifest = project.decode(LCLS_GENERAL_SOLUTION, structured)
 
-    fb_st = (
+    fb_declaration = (
         structured
-        / project.ST_DIRNAME
-        / "LCLSGeneral"
-        / "LCLSGeneral"
-        / "POUs"
-        / "Logger"
-        / "FB_LogHandler.st"
-    )
-    assert fb_st.is_file()
-    assert not (
-        structured
-        / project.ST_DIRNAME
+        / project.SOURCE_DIRNAME
         / "LCLSGeneral"
         / "LCLSGeneral"
         / "POUs"
         / "Logger"
         / "FB_LogHandler"
-        / "CircuitBreaker.st"
-    ).exists()
-    fb_code = fb_st.read_text(encoding="utf-8")
-    assert "FUNCTION_BLOCK FB_LogHandler" in fb_code
-    assert "// Global log circuit breaker" in fb_code
-    assert {
-        item["st_path"]
-        for item in manifest["items"]
-        if item["object_identifier"] == "FB_LogHandler"
-    } == {
-        "st/LCLSGeneral/LCLSGeneral/POUs/Logger/FB_LogHandler.st",
-    }
-
-    interface_st = (
-        structured
-        / project.ST_DIRNAME
-        / "LCLSGeneral"
-        / "LCLSGeneral"
-        / "Interfaces"
-        / "I_Interface.st"
+        / "declaration.st"
     )
-    assert interface_st.is_file()
+    action_st = fb_declaration.parent / "actions" / "CircuitBreaker.st"
+    assert fb_declaration.is_file()
+    assert action_st.is_file()
     assert not (
         structured
-        / project.ST_DIRNAME
+        / project.SOURCE_DIRNAME
+        / "LCLSGeneral"
+        / "LCLSGeneral"
+        / "POUs"
+        / "Logger"
+        / "FB_LogHandler.st"
+    ).exists()
+    fb_code = fb_declaration.read_text(encoding="utf-8")
+    action_code = action_st.read_text(encoding="utf-8")
+    assert "FUNCTION_BLOCK FB_LogHandler" in fb_code
+    assert "// Global log circuit breaker" in action_code
+    assert {
+        item["path"]
+        for item in manifest["items"]
+        if item["object_identifier"] == "FB_LogHandler"
+    } >= {
+        "src/LCLSGeneral/LCLSGeneral/POUs/Logger/FB_LogHandler/declaration.st",
+        "src/LCLSGeneral/LCLSGeneral/POUs/Logger/FB_LogHandler/actions/CircuitBreaker.st",
+    }
+
+    interface_declaration = (
+        structured
+        / project.SOURCE_DIRNAME
         / "LCLSGeneral"
         / "LCLSGeneral"
         / "Interfaces"
         / "I_Interface"
-        / "Method1.st"
-    ).exists()
-    interface_code = interface_st.read_text(encoding="utf-8")
+        / "declaration.st"
+    )
+    method_declaration = interface_declaration.parent / "methods" / "Method1" / "declaration.st"
+    property_declaration = (
+        interface_declaration.parent
+        / "properties"
+        / "Property1"
+        / "get"
+        / "declaration.st"
+    )
+    assert interface_declaration.is_file()
+    assert method_declaration.is_file()
+    assert property_declaration.is_file()
+    interface_code = interface_declaration.read_text(encoding="utf-8")
+    method_code = method_declaration.read_text(encoding="utf-8")
+    property_code = property_declaration.read_text(encoding="utf-8")
     assert "INTERFACE I_Interface" in interface_code
-    assert "METHOD Method1 : BOOL" in interface_code
-    assert "PROPERTY Property1 : INT" in interface_code
+    assert "METHOD Method1 : BOOL" in method_code
+    assert "PROPERTY Property1 : INT" in property_code
 
 
 def test_project_encode_applies_structured_text_change(tmp_path: pathlib.Path):
@@ -164,7 +187,7 @@ def test_project_encode_applies_structured_text_change(tmp_path: pathlib.Path):
     )
 
 
-def test_project_encode_applies_nested_member_change_from_combined_st(
+def test_project_encode_applies_nested_member_change_from_split_st(
     tmp_path: pathlib.Path,
 ):
     structured = tmp_path / "structured"
@@ -176,13 +199,24 @@ def test_project_encode_applies_nested_member_change_from_combined_st(
         for item in manifest["items"]
         if item["identifier"] == "FB_LogHandler.CircuitBreaker"
     )
-    st_path = structured / action["st_path"]
-    st_code = st_path.read_text(encoding="utf-8")
-    st_path.write_text(
-        st_code.replace(
+    declaration = next(
+        item
+        for item in manifest["items"]
+        if item["identifier"] == "FB_LogHandler/declaration"
+    )
+    declaration_path = structured / declaration["path"]
+    action_path = structured / action["path"]
+    declaration_code = declaration_path.read_text(encoding="utf-8")
+    action_code = action_path.read_text(encoding="utf-8")
+    declaration_path.write_text(
+        declaration_code.replace(
             "FUNCTION_BLOCK FB_LogHandler",
             "FUNCTION_BLOCK FB_LogHandler\n// inserted declaration comment",
-        ).replace(
+        ),
+        encoding="utf-8",
+    )
+    action_path.write_text(
+        action_code.replace(
             "GVL_Logger.nGlobAccEvents := 0;",
             "GVL_Logger.nGlobAccEvents := 1;",
         ),
@@ -249,7 +283,7 @@ def test_project_encode_rejects_missing_manifest(tmp_path: pathlib.Path):
 def test_project_encode_rejects_extra_st_file(tmp_path: pathlib.Path):
     structured = tmp_path / "structured"
     project.decode(SAMPLE_SOLUTION, structured)
-    extra = structured / project.ST_DIRNAME / "extra.st"
+    extra = structured / project.SOURCE_DIRNAME / "extra.st"
     extra.write_text("PROGRAM Extra\nEND_PROGRAM", encoding="utf-8")
 
     with pytest.raises(project.ProjectCommandError, match="not declared"):

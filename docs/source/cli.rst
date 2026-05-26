@@ -117,9 +117,11 @@ It performs the following steps:
 - Validates the input path, extension, TwinCAT layout, and supported file
   types.
 - Copies the native project tree into ``native/``.
-- Extracts editable Structured Text blocks into ``st/``.
-- Writes ``blark_twincat.json`` so each extracted ``.st`` file can be mapped
-  back to its native TwinCAT source.
+- Extracts editable Structured Text blocks into ``src/``, using one ``.st``
+  file per semantic block.
+- Writes machine-owned metadata under ``.blark/``, including
+  ``.blark/manifest.json``, so each extracted ``.st`` file can be mapped back
+  to its native TwinCAT source.
 - Stops with a detailed error message when unsupported compile items,
   malformed XML, inconsistent project references, or overwrite conflicts are
   encountered.
@@ -132,7 +134,7 @@ tree.
 
 It performs the following steps:
 
-- Validates the manifest, ``native/``, and ``st/`` contents before writing
+- Validates the manifest, ``native/``, and ``src/`` contents before writing
   output.
 - Parses every edited ``.st`` file again before rewriting native source.
 - Applies only changed Structured Text blocks back into a copied native TwinCAT
@@ -145,10 +147,16 @@ Structured folder layout:
 .. code:: text
 
    structured/
-     blark_twincat.json
+     blark.json
+     README.md
+     .blark/
+       manifest.json
+       index.json
+       diagnostics.json
+       cache/
      native/
        ...
-     st/
+     src/
        ...
 
 Typical workflows:

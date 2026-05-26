@@ -167,15 +167,15 @@ Use `project` when you want a round-trip friendly representation of TwinCAT proj
 
 - Validates the input path, extension, TwinCAT layout, and supported file types.
 - Copies the native project tree into `native/`.
-- Extracts editable Structured Text into `st/`, using one `.st` file per TwinCAT source object.
-- Keeps function block/interface declarations, implementations, methods, properties, and actions together in that object file with `// blark:begin ...` section markers.
-- Writes a manifest file, `blark_twincat.json`, which records how each `.st` file maps back to the native TwinCAT source.
+- Extracts editable Structured Text into `src/`, using one `.st` file per semantic block.
+- Splits declarations, implementations, methods, properties, and actions into predictable paths for VSCode editing.
+- Writes machine-owned metadata under `.blark/`, including `.blark/manifest.json`, which records how each `.st` file maps back to the native TwinCAT source.
 - Fails loudly on unsupported compile items, malformed XML, inconsistent project references, or overwrite conflicts.
 
 `blark project encode`:
 
 - Reads a previously decoded folder.
-- Validates the manifest, `native/`, and `st/` contents before writing output.
+- Validates the manifest, `native/`, and `src/` contents before writing output.
 - Parses every edited `.st` file again to ensure the round-trip result is still valid.
 - Applies only the changed Structured Text blocks back into a copied native TwinCAT tree.
 - Refuses to proceed when files are missing, extra `.st` files appear, identifiers drift, or rewrite safety checks fail.
@@ -184,10 +184,16 @@ Structured folder layout:
 
 ```text
 structured/
-  blark_twincat.json
+  blark.json
+  README.md
+  .blark/
+    manifest.json
+    index.json
+    diagnostics.json
+    cache/
   native/
     ...
-  st/
+  src/
     ...
 ```
 
