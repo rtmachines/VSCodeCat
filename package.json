@@ -1,0 +1,344 @@
+{
+  "name": "vscodecat",
+  "displayName": "VSCodeCat",
+  "description": "Safe VS Code editing workflow for TwinCAT 3 Structured Text projects.",
+  "version": "0.1.4",
+  "publisher": "vscodecat",
+  "license": "GPL-3.0-or-later",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rtmachines/VSCodeCat.git"
+  },
+  "engines": {
+    "vscode": "^1.92.0"
+  },
+  "categories": [
+    "Programming Languages",
+    "Other"
+  ],
+  "keywords": [
+    "TwinCAT",
+    "Structured Text",
+    "IEC 61131-3",
+    "PLC",
+    "Beckhoff"
+  ],
+  "activationEvents": [
+    "onLanguage:twincat-st",
+    "onCommand:vscodecat.decodeProject",
+    "onCommand:vscodecat.openDecodedWorkspace",
+    "onCommand:vscodecat.refreshManifest",
+    "onCommand:vscodecat.selectActiveWorkspace",
+    "onCommand:vscodecat.encodeProject",
+    "onCommand:vscodecat.configureBackend",
+    "onCommand:vscodecat.formatCurrentFile",
+    "onCommand:vscodecat.showCurrentObjectSummary",
+    "onCommand:vscodecat.copyObjectName",
+    "onCommand:vscodecat.toggleSectionMarkerDecorations",
+    "onCommand:vscodecat.newPlcObject",
+    "onCommand:vscodecat.openObject",
+    "onCommand:vscodecat.revealObjectInExplorer",
+    "onCommand:vscodecat.openNativeSource",
+    "onCommand:vscodecat.searchPlcSymbols",
+    "onCommand:vscodecat.openContainingObject",
+    "onCommand:vscodecat.validateCurrentFile",
+    "onCommand:vscodecat.validateWorkspace",
+    "onCommand:vscodecat.validateManifest",
+    "onCommand:vscodecat.explainDiagnostic",
+    "onCommand:vscodecat.clearDiagnostics",
+    "onCommand:vscodecat.repairSectionMarkers",
+    "onCommand:vscodecat.previewOutputDiff",
+    "onCommand:vscodecat.diffCurrentObject",
+    "onCommand:vscodecat.showChangedObjects",
+    "onCommand:vscodecat.openPreviewFolder",
+    "onCommand:vscodecat.discardPreview",
+    "onCommand:vscodecat.openInTwinCAT",
+    "onCommand:vscodecat.locateTwinCATXae",
+    "onCommand:vscodecat.openEncodedOutput",
+    "onCommand:vscodecat.showBackendVersion",
+    "onCommand:vscodecat.showBackendLog",
+    "onCommand:vscodecat.openManifestJson",
+    "onCommand:vscodecat.exportSupportBundle",
+    "onCommand:vscodecat.runBackendSelfTest",
+    "workspaceContains:blark_twincat.json",
+    "workspaceContains:**/blark_twincat.json",
+    "onView:vscodecat.objects",
+    "onView:vscodecat.mapping",
+    "onView:vscodecat.diagnostics",
+    "onView:vscodecat.diff"
+  ],
+  "main": "./out/extension.js",
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./"
+  },
+  "devDependencies": {
+    "@types/node": "22.10.1",
+    "@types/vscode": "1.92.0",
+    "typescript": "5.7.2"
+  },
+  "contributes": {
+    "configuration": {
+      "title": "VSCodeCat",
+      "properties": {
+        "vscodecat.blark.command": {
+          "type": "string",
+          "default": "auto",
+          "description": "Backend command. Use 'auto', 'blark', 'python -m blark', or a full executable path."
+        },
+        "vscodecat.decode.outputFolderSuffix": {
+          "type": "string",
+          "default": "_vscodecat",
+          "description": "Suffix for the default decoded Structured Text folder."
+        },
+        "vscodecat.encode.outputFolderSuffix": {
+          "type": "string",
+          "default": "_twincat_out",
+          "description": "Suffix for the default encoded native TwinCAT output folder."
+        },
+        "vscodecat.validateOnSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "Validate mapped Structured Text files when they are saved."
+        },
+        "vscodecat.openDecodedWorkspaceInNewWindow": {
+          "type": "boolean",
+          "default": false,
+          "description": "Open decoded ST workspaces in a new VS Code window by default."
+        },
+        "vscodecat.twincat.xaePath": {
+          "type": "string",
+          "default": "",
+          "description": "Optional path to Visual Studio or TwinCAT XAE for opening encoded output."
+        }
+      }
+    },
+    "languages": [
+      {
+        "id": "twincat-st",
+        "aliases": [
+          "TwinCAT Structured Text",
+          "Structured Text",
+          "ST"
+        ],
+        "extensions": [
+          ".st"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "twincat-st",
+        "scopeName": "source.twincat-st",
+        "path": "./syntaxes/twincat-st.tmLanguage.json"
+      }
+    ],
+    "snippets": [
+      {
+        "language": "twincat-st",
+        "path": "./snippets/twincat-st.json"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "vscodecat",
+          "title": "VSCodeCat",
+          "icon": "resources/vscodecat.svg"
+        }
+      ]
+    },
+    "views": {
+      "vscodecat": [
+        {
+          "id": "vscodecat.objects",
+          "name": "PLC Object Explorer",
+          "contextualTitle": "PLC Objects"
+        },
+        {
+          "id": "vscodecat.mapping",
+          "name": "TwinCAT Mapping",
+          "contextualTitle": "Mapping"
+        },
+        {
+          "id": "vscodecat.diagnostics",
+          "name": "Diagnostics",
+          "contextualTitle": "Diagnostics"
+        },
+        {
+          "id": "vscodecat.diff",
+          "name": "Native Output Diff",
+          "contextualTitle": "Output Diff"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "vscodecat.objects",
+        "contents": "Decode a TwinCAT project to begin editing Structured Text.\n[Decode Project](command:vscodecat.decodeProject)\n[Open Decoded Workspace](command:vscodecat.openDecodedWorkspace)",
+        "when": "!vscodecat.hasDecodedWorkspace"
+      }
+    ],
+    "commands": [
+      { "command": "vscodecat.decodeProject", "title": "Decode TwinCAT Project to Editable ST", "category": "VSCodeCat" },
+      { "command": "vscodecat.openDecodedWorkspace", "title": "Open Decoded ST Workspace", "category": "VSCodeCat" },
+      { "command": "vscodecat.refreshManifest", "title": "Refresh TwinCAT Mapping", "category": "VSCodeCat" },
+      { "command": "vscodecat.selectActiveWorkspace", "title": "Select Active TwinCAT Mapping", "category": "VSCodeCat" },
+      { "command": "vscodecat.encodeProject", "title": "Encode Edited ST Back to TwinCAT Project", "category": "VSCodeCat" },
+      { "command": "vscodecat.configureBackend", "title": "Configure VSCodeCat Backend", "category": "VSCodeCat" },
+      { "command": "vscodecat.formatCurrentFile", "title": "Format Current ST File", "category": "VSCodeCat" },
+      { "command": "vscodecat.formatWorkspace", "title": "Format ST Workspace", "category": "VSCodeCat" },
+      { "command": "vscodecat.showCurrentObjectSummary", "title": "Show Current Object Summary", "category": "VSCodeCat" },
+      { "command": "vscodecat.copyObjectName", "title": "Copy PLC Object Qualified Name", "category": "VSCodeCat" },
+      { "command": "vscodecat.toggleSectionMarkerDecorations", "title": "Toggle Section Marker Decorations", "category": "VSCodeCat" },
+      { "command": "vscodecat.newPlcObject", "title": "New PLC Object", "category": "VSCodeCat" },
+      { "command": "vscodecat.newFunctionBlock", "title": "New Function Block", "category": "VSCodeCat" },
+      { "command": "vscodecat.newProgram", "title": "New Program", "category": "VSCodeCat" },
+      { "command": "vscodecat.newFunction", "title": "New Function", "category": "VSCodeCat" },
+      { "command": "vscodecat.newInterface", "title": "New Interface", "category": "VSCodeCat" },
+      { "command": "vscodecat.newDut", "title": "New DUT", "category": "VSCodeCat" },
+      { "command": "vscodecat.newGvl", "title": "New GVL", "category": "VSCodeCat" },
+      { "command": "vscodecat.newMethod", "title": "New Method", "category": "VSCodeCat" },
+      { "command": "vscodecat.newProperty", "title": "New Property", "category": "VSCodeCat" },
+      { "command": "vscodecat.newAction", "title": "New Action", "category": "VSCodeCat" },
+      { "command": "vscodecat.openObject", "title": "Open PLC Object", "category": "VSCodeCat" },
+      { "command": "vscodecat.revealObjectInExplorer", "title": "Reveal PLC Object in Explorer", "category": "VSCodeCat" },
+      { "command": "vscodecat.openNativeSource", "title": "Open Native TwinCAT Source", "category": "VSCodeCat" },
+      { "command": "vscodecat.searchPlcSymbols", "title": "Search PLC Symbols", "category": "VSCodeCat" },
+      { "command": "vscodecat.openContainingObject", "title": "Open Containing PLC Object", "category": "VSCodeCat" },
+      { "command": "vscodecat.validateCurrentFile", "title": "Validate Current ST File", "category": "VSCodeCat" },
+      { "command": "vscodecat.validateWorkspace", "title": "Validate ST Workspace", "category": "VSCodeCat" },
+      { "command": "vscodecat.validateManifest", "title": "Validate TwinCAT Mapping Manifest", "category": "VSCodeCat" },
+      { "command": "vscodecat.explainDiagnostic", "title": "Explain VSCodeCat Diagnostic", "category": "VSCodeCat" },
+      { "command": "vscodecat.clearDiagnostics", "title": "Clear VSCodeCat Diagnostics", "category": "VSCodeCat" },
+      { "command": "vscodecat.repairSectionMarkers", "title": "Repair Section Markers", "category": "VSCodeCat" },
+      { "command": "vscodecat.previewOutputDiff", "title": "Preview TwinCAT Output Diff", "category": "VSCodeCat" },
+      { "command": "vscodecat.diffCurrentObject", "title": "Diff Current PLC Object Output", "category": "VSCodeCat" },
+      { "command": "vscodecat.showChangedObjects", "title": "Show Changed PLC Objects", "category": "VSCodeCat" },
+      { "command": "vscodecat.openPreviewFolder", "title": "Open Native Preview Folder", "category": "VSCodeCat" },
+      { "command": "vscodecat.discardPreview", "title": "Discard Native Preview", "category": "VSCodeCat" },
+      { "command": "vscodecat.renameObject", "title": "Rename PLC Object", "category": "VSCodeCat" },
+      { "command": "vscodecat.moveObject", "title": "Move PLC Object", "category": "VSCodeCat" },
+      { "command": "vscodecat.renameSymbol", "title": "Rename Symbol", "category": "VSCodeCat" },
+      { "command": "vscodecat.extractMethod", "title": "Extract Method or Action", "category": "VSCodeCat" },
+      { "command": "vscodecat.sortDeclarations", "title": "Sort Declarations", "category": "VSCodeCat" },
+      { "command": "vscodecat.openInTwinCAT", "title": "Open in TwinCAT XAE", "category": "VSCodeCat" },
+      { "command": "vscodecat.locateTwinCATXae", "title": "Locate TwinCAT XAE", "category": "VSCodeCat" },
+      { "command": "vscodecat.openEncodedOutput", "title": "Open Encoded Output Folder", "category": "VSCodeCat" },
+      { "command": "vscodecat.buildWithTwinCAT", "title": "Build with TwinCAT XAE", "category": "VSCodeCat" },
+      { "command": "vscodecat.showBackendVersion", "title": "Show VSCodeCat Backend Version", "category": "VSCodeCat" },
+      { "command": "vscodecat.showBackendLog", "title": "Show VSCodeCat Backend Log", "category": "VSCodeCat" },
+      { "command": "vscodecat.openManifestJson", "title": "Open TwinCAT Mapping Manifest", "category": "VSCodeCat" },
+      { "command": "vscodecat.exportSupportBundle", "title": "Export VSCodeCat Support Bundle", "category": "VSCodeCat" },
+      { "command": "vscodecat.runBackendSelfTest", "title": "Run Backend Self-Test", "category": "VSCodeCat" }
+    ],
+    "menus": {
+      "commandPalette": [
+        { "command": "vscodecat.encodeProject", "when": "vscodecat.hasDecodedWorkspace" },
+        { "command": "vscodecat.previewOutputDiff", "when": "vscodecat.hasDecodedWorkspace" },
+        { "command": "vscodecat.validateWorkspace", "when": "vscodecat.hasDecodedWorkspace" },
+        { "command": "vscodecat.newPlcObject", "when": "vscodecat.hasDecodedWorkspace" },
+        { "command": "vscodecat.openObject", "when": "vscodecat.hasDecodedWorkspace" }
+      ],
+      "explorer/context": [
+        {
+          "command": "vscodecat.decodeProject",
+          "when": "resourceExtname =~ /\\.(sln|tsproj|plcproj|TcPOU|TcGVL|TcDUT|TcIO|TcTTO)$/",
+          "group": "vscodecat@1"
+        },
+        {
+          "command": "vscodecat.openDecodedWorkspace",
+          "when": "resourceFilename == 'blark_twincat.json'",
+          "group": "vscodecat@2"
+        },
+        {
+          "command": "vscodecat.refreshManifest",
+          "when": "resourceFilename == 'blark_twincat.json'",
+          "group": "vscodecat@3"
+        },
+        {
+          "command": "vscodecat.validateManifest",
+          "when": "resourceFilename == 'blark_twincat.json'",
+          "group": "vscodecat@4"
+        },
+        {
+          "command": "vscodecat.validateWorkspace",
+          "when": "resourceFilename == 'blark_twincat.json'",
+          "group": "vscodecat@5"
+        },
+        {
+          "command": "vscodecat.previewOutputDiff",
+          "when": "resourceFilename == 'blark_twincat.json'",
+          "group": "vscodecat@6"
+        },
+        {
+          "command": "vscodecat.encodeProject",
+          "when": "resourceFilename == 'blark_twincat.json'",
+          "group": "vscodecat@7"
+        },
+        {
+          "command": "vscodecat.validateCurrentFile",
+          "when": "resourceExtname == '.st'",
+          "group": "vscodecat@8"
+        },
+        {
+          "command": "vscodecat.showCurrentObjectSummary",
+          "when": "resourceExtname == '.st'",
+          "group": "vscodecat@9"
+        }
+      ],
+      "editor/title": [
+        { "command": "vscodecat.validateCurrentFile", "when": "editorLangId == 'twincat-st'", "group": "navigation" },
+        { "command": "vscodecat.showCurrentObjectSummary", "when": "editorLangId == 'twincat-st' && vscodecat.activeMappedSt", "group": "navigation" }
+      ],
+      "editor/context": [
+        { "command": "vscodecat.validateCurrentFile", "when": "editorLangId == 'twincat-st'", "group": "vscodecat@1" },
+        { "command": "vscodecat.showCurrentObjectSummary", "when": "editorLangId == 'twincat-st' && vscodecat.activeMappedSt", "group": "vscodecat@2" },
+        { "command": "vscodecat.openNativeSource", "when": "editorLangId == 'twincat-st' && vscodecat.activeMappedSt", "group": "vscodecat@3" },
+        { "command": "vscodecat.diffCurrentObject", "when": "editorLangId == 'twincat-st' && vscodecat.activeMappedSt && vscodecat.hasPreview", "group": "vscodecat@4" },
+        { "command": "vscodecat.repairSectionMarkers", "when": "editorLangId == 'twincat-st' && vscodecat.activeMappedSt", "group": "vscodecat@5" }
+      ],
+      "view/title": [
+        { "command": "vscodecat.refreshManifest", "when": "view =~ /^vscodecat\\./", "group": "navigation" },
+        { "command": "vscodecat.newPlcObject", "when": "view == 'vscodecat.objects' && vscodecat.hasDecodedWorkspace", "group": "navigation" },
+        { "command": "vscodecat.validateWorkspace", "when": "view == 'vscodecat.diagnostics' && vscodecat.hasDecodedWorkspace", "group": "navigation" },
+        { "command": "vscodecat.previewOutputDiff", "when": "view == 'vscodecat.diff' && vscodecat.hasDecodedWorkspace", "group": "navigation" }
+      ],
+      "view/item/context": [
+        { "command": "vscodecat.openObject", "when": "view == 'vscodecat.objects' && viewItem =~ /Object$/", "group": "inline" },
+        { "command": "vscodecat.copyObjectName", "when": "view == 'vscodecat.objects' && viewItem =~ /Object$/", "group": "inline" },
+        { "command": "vscodecat.openNativeSource", "when": "view == 'vscodecat.mapping' && viewItem == 'mappingItem'", "group": "inline" },
+        { "command": "vscodecat.diffCurrentObject", "when": "view == 'vscodecat.diff' && viewItem == 'changedFile'", "group": "inline" }
+      ]
+    },
+    "walkthroughs": [
+      {
+        "id": "vscodecat.getStarted",
+        "title": "Get Started with VSCodeCat",
+        "description": "Decode, edit, validate, preview, and encode TwinCAT Structured Text safely.",
+        "steps": [
+          {
+            "id": "vscodecat.decode",
+            "title": "Decode a TwinCAT project",
+            "description": "Run the decode command on a `.sln`, `.tsproj`, `.plcproj`, or TwinCAT PLC source file.",
+            "completionEvents": ["onCommand:vscodecat.decodeProject"]
+          },
+          {
+            "id": "vscodecat.validate",
+            "title": "Validate Structured Text",
+            "description": "Validate the decoded workspace before creating native output.",
+            "completionEvents": ["onCommand:vscodecat.validateWorkspace"]
+          },
+          {
+            "id": "vscodecat.preview",
+            "title": "Preview native output",
+            "description": "Review native XML/project diffs before exporting.",
+            "completionEvents": ["onCommand:vscodecat.previewOutputDiff"]
+          }
+        ]
+      }
+    ]
+  }
+}

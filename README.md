@@ -26,6 +26,31 @@ an idea of where the project is going, see the issues list.
 * ``lark.Tree`` generation of any supported source code
 * Python dataclasses of supported source code, with introspection and code refactoring
 
+## VSCodeCat VS Code extension
+
+This repository also contains the VSCodeCat extension MVP for editing TwinCAT
+projects in VS Code while round-tripping through the existing ``blark`` backend.
+
+The extension contributes:
+
+* TwinCAT Structured Text language support for ``.st`` files.
+* Commands to decode native TwinCAT projects, validate decoded workspaces,
+  preview native output diffs, and encode back to a separate output folder.
+* PLC object, mapping, diagnostics, and native output diff tree views.
+* Safe staged creation for new POUs, interfaces, DUTs, and GVLs.
+
+Developer setup:
+
+```bash
+npm install
+npm run compile
+```
+
+Then open this folder in VS Code and use the "Run Extension" launch target or
+run commands from the Command Palette under "VSCodeCat". By default the
+extension auto-detects ``dist/blark.exe``, ``blark``, or ``python -m blark``;
+override this with the ``vscodecat.blark.command`` setting when needed.
+
 ### Works-in-progress
 
 * Sphinx API documentation generation (a new Sphinx domain)

@@ -1,0 +1,119 @@
+{
+  "Function Block": {
+    "prefix": "fb",
+    "description": "TwinCAT function block",
+    "body": [
+      "FUNCTION_BLOCK ${1:FB_Name}",
+      "VAR_INPUT",
+      "    ${2:Input} : ${3:BOOL};",
+      "END_VAR",
+      "VAR_OUTPUT",
+      "    ${4:Output} : ${5:BOOL};",
+      "END_VAR",
+      "VAR",
+      "END_VAR",
+      "END_FUNCTION_BLOCK",
+      "",
+      "$0"
+    ]
+  },
+  "Program": {
+    "prefix": "program",
+    "description": "TwinCAT program",
+    "body": [
+      "PROGRAM ${1:MAIN}",
+      "VAR",
+      "    ${2:Value} : ${3:BOOL};",
+      "END_VAR",
+      "END_PROGRAM"
+    ]
+  },
+  "Function": {
+    "prefix": "function",
+    "description": "TwinCAT function",
+    "body": [
+      "FUNCTION ${1:F_Name} : ${2:BOOL}",
+      "VAR_INPUT",
+      "    ${3:Input} : ${4:BOOL};",
+      "END_VAR",
+      "",
+      "${1:F_Name} := ${5:FALSE};",
+      "END_FUNCTION"
+    ]
+  },
+  "Method": {
+    "prefix": "method",
+    "description": "TwinCAT method",
+    "body": [
+      "METHOD ${1:MethodName} : ${2:BOOL}",
+      "VAR_INPUT",
+      "END_VAR",
+      "",
+      "${1:MethodName} := ${3:FALSE};"
+    ]
+  },
+  "Property": {
+    "prefix": "property",
+    "description": "TwinCAT property",
+    "body": [
+      "PROPERTY ${1:PropertyName} : ${2:BOOL}"
+    ]
+  },
+  "Interface": {
+    "prefix": "interface",
+    "description": "TwinCAT interface",
+    "body": [
+      "INTERFACE ${1:I_Name}",
+      "END_INTERFACE"
+    ]
+  },
+  "DUT Struct": {
+    "prefix": "struct",
+    "description": "TwinCAT DUT struct",
+    "body": [
+      "TYPE ${1:ST_Name} :",
+      "STRUCT",
+      "    ${2:Value} : ${3:INT};",
+      "END_STRUCT",
+      "END_TYPE"
+    ]
+  },
+  "GVL": {
+    "prefix": "gvl",
+    "description": "TwinCAT global variable list",
+    "body": [
+      "{attribute 'qualified_only'}",
+      "VAR_GLOBAL",
+      "    ${1:Value} : ${2:BOOL};",
+      "END_VAR"
+    ]
+  },
+  "VAR_INPUT": {
+    "prefix": "varin",
+    "description": "VAR_INPUT block",
+    "body": [
+      "VAR_INPUT",
+      "    ${1:Value} : ${2:BOOL};",
+      "END_VAR"
+    ]
+  },
+  "IF": {
+    "prefix": "if",
+    "description": "IF statement",
+    "body": [
+      "IF ${1:Condition} THEN",
+      "    $0",
+      "END_IF"
+    ]
+  },
+  "CASE": {
+    "prefix": "case",
+    "description": "CASE statement",
+    "body": [
+      "CASE ${1:Value} OF",
+      "    ${2:0}:",
+      "        $0",
+      "END_CASE"
+    ]
+  }
+}

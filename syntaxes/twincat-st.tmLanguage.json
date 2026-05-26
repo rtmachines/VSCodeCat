@@ -1,0 +1,119 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "TwinCAT Structured Text",
+  "scopeName": "source.twincat-st",
+  "patterns": [
+    { "include": "#sectionMarkers" },
+    { "include": "#comments" },
+    { "include": "#strings" },
+    { "include": "#attributes" },
+    { "include": "#declarations" },
+    { "include": "#keywords" },
+    { "include": "#operators" },
+    { "include": "#numbers" },
+    { "include": "#types" }
+  ],
+  "repository": {
+    "attributes": {
+      "patterns": [
+        {
+          "name": "meta.attribute.twincat-st",
+          "match": "\\{attribute\\s+'[^']+'\\}"
+        }
+      ]
+    },
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.double-slash.twincat-st",
+          "match": "//.*$"
+        },
+        {
+          "name": "comment.block.twincat-st",
+          "begin": "\\(\\*",
+          "end": "\\*\\)"
+        }
+      ]
+    },
+    "declarations": {
+      "patterns": [
+        {
+          "name": "meta.declaration.function-block.twincat-st",
+          "match": "\\b(FUNCTION_BLOCK|PROGRAM|FUNCTION|METHOD|PROPERTY|ACTION|INTERFACE|TYPE)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+          "captures": {
+            "1": { "name": "keyword.control.declaration.twincat-st" },
+            "2": { "name": "entity.name.type.twincat-st" }
+          }
+        },
+        {
+          "name": "keyword.control.variable.twincat-st",
+          "match": "\\b(VAR|VAR_INPUT|VAR_OUTPUT|VAR_IN_OUT|VAR_GLOBAL|VAR_TEMP|VAR_INST|END_VAR)\\b"
+        }
+      ]
+    },
+    "keywords": {
+      "patterns": [
+        {
+          "name": "keyword.control.twincat-st",
+          "match": "\\b(IF|THEN|ELSIF|ELSE|END_IF|CASE|OF|END_CASE|FOR|TO|BY|DO|END_FOR|WHILE|END_WHILE|REPEAT|UNTIL|END_REPEAT|RETURN|EXIT|CONTINUE|EXTENDS|IMPLEMENTS|SUPER|THIS|WITH|END_FUNCTION_BLOCK|END_PROGRAM|END_FUNCTION|END_METHOD|END_PROPERTY|END_INTERFACE|END_TYPE|STRUCT|END_STRUCT)\\b"
+        },
+        {
+          "name": "constant.language.boolean.twincat-st",
+          "match": "\\b(TRUE|FALSE)\\b"
+        }
+      ]
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.twincat-st",
+          "match": "\\b(?:16#(?:[0-9A-Fa-f_]+)|2#(?:[01_]+)|[0-9]+(?:\\.[0-9]+)?(?:[eE][+-]?[0-9]+)?)\\b"
+        }
+      ]
+    },
+    "operators": {
+      "patterns": [
+        {
+          "name": "keyword.operator.twincat-st",
+          "match": "(:=|=>|<=|>=|<>|\\b(AND|OR|XOR|NOT|MOD)\\b|[+\\-*/=<>&])"
+        }
+      ]
+    },
+    "sectionMarkers": {
+      "patterns": [
+        {
+          "name": "comment.line.section-marker.twincat-st",
+          "match": "^\\s*//\\s*blark:(begin|end)\\b.*$"
+        }
+      ]
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.single.twincat-st",
+          "begin": "'",
+          "end": "'",
+          "patterns": [
+            {
+              "name": "constant.character.escape.twincat-st",
+              "match": "\\$."
+            }
+          ]
+        },
+        {
+          "name": "string.quoted.double.twincat-st",
+          "begin": "\"",
+          "end": "\""
+        }
+      ]
+    },
+    "types": {
+      "patterns": [
+        {
+          "name": "storage.type.twincat-st",
+          "match": "\\b(BOOL|BYTE|WORD|DWORD|LWORD|SINT|USINT|INT|UINT|DINT|UDINT|LINT|ULINT|REAL|LREAL|TIME|LTIME|DATE|LDATE|TIME_OF_DAY|TOD|LTOD|DATE_AND_TIME|DT|LDT|STRING|WSTRING|ARRAY|POINTER|REFERENCE|UNION|ENUM)\\b"
+        }
+      ]
+    }
+  }
+}

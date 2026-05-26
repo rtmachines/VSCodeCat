@@ -3,6 +3,9 @@
 /old
 /build
 /dist
+node_modules
+/out
+*.vsix
 *.egg-info
 .coverage
 /docs/build
