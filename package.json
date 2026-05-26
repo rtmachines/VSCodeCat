@@ -5,6 +5,11 @@
   "version": "0.0.1",
   "publisher": "local",
   "license": "BSD-3-Clause",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rtmachines/VSCodeCat.git"
+  },
+  "homepage": "https://github.com/rtmachines/VSCodeCat",
   "engines": {
     "vscode": "^1.92.0"
   },
