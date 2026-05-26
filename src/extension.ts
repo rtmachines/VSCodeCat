@@ -5,6 +5,13 @@ import * as vscode from "vscode";
 import { projectDecodeArgs, projectEncodeArgs } from "./blark/arguments";
 import { BlarkProcess } from "./blark/BlarkProcess";
 import {
+  compareTwinCatInputs,
+  decodeOutputPath,
+  isSameOrInside,
+  isSupportedTwinCatInput,
+  safeSuggestedDecodeOutputPath,
+} from "./blark/DecodePaths";
+import {
   findStructuredRoot,
   getOriginalNativeRoot,
   loadManifest,
@@ -23,17 +30,6 @@ import {
   toNativeReadonlyUri,
 } from "./view/NativeReadonlyFileSystemProvider";
 import { NativeReadonlyTreeProvider } from "./view/NativeReadonlyTreeProvider";
-
-const supportedTwinCatExtensions = new Set([
-  ".sln",
-  ".tsproj",
-  ".plcproj",
-  ".tcpou",
-  ".tcgvl",
-  ".tcdut",
-  ".tcio",
-  ".tctto",
-]);
 
 function uriToFsPath(uri?: vscode.Uri | string | { fsPath?: string }): string | undefined {
   if (typeof uri === "string") {
@@ -67,7 +63,7 @@ async function isNonEmptyDirectory(target: string): Promise<boolean> {
 function defaultDecodeOutputPath(context: vscode.ExtensionContext, inputPath: string): string {
   const workspaceFolder = workspaceFolderForPath(inputPath);
   const root = resolveSettingPath(settings().decodeOutputRoot, context, workspaceFolder);
-  return path.join(root, path.basename(inputPath, path.extname(inputPath)));
+  return decodeOutputPath(root, inputPath);
 }
 
 function defaultStagingPath(context: vscode.ExtensionContext, structuredRoot: string): string {
@@ -76,17 +72,104 @@ function defaultStagingPath(context: vscode.ExtensionContext, structuredRoot: st
   return path.join(root, sanitizePathSegment(path.basename(structuredRoot)));
 }
 
-async function pickTwinCatInput(): Promise<string | undefined> {
+async function pickTwinCatInput(defaultFolder?: string): Promise<string | undefined> {
   const picked = await vscode.window.showOpenDialog({
     canSelectFiles: true,
     canSelectFolders: false,
     canSelectMany: false,
+    defaultUri: defaultFolder ? vscode.Uri.file(defaultFolder) : undefined,
     filters: {
       "TwinCAT/blark supported": ["sln", "tsproj", "plcproj", "TcPOU", "TcGVL", "TcDUT", "TcIO", "TcTTO"],
     },
     title: "Select a TwinCAT project or source file to decode",
   });
   return picked?.[0]?.fsPath;
+}
+
+async function findTwinCatInputsInFolder(root: string, limit = 100): Promise<string[]> {
+  const results: string[] = [];
+  const ignoredDirectoryNames = new Set([".git", ".twincat-st", ".blark", "native", "node_modules", "build", "dist", "out"]);
+
+  async function walk(directory: string): Promise<void> {
+    if (results.length >= limit) {
+      return;
+    }
+    let entries: import("node:fs").Dirent[];
+    try {
+      entries = await fs.readdir(directory, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const child = path.join(directory, entry.name);
+      if (entry.isDirectory()) {
+        if (!ignoredDirectoryNames.has(entry.name)) {
+          await walk(child);
+        }
+      } else if (entry.isFile() && isSupportedTwinCatInput(child)) {
+        results.push(child);
+      }
+      if (results.length >= limit) {
+        return;
+      }
+    }
+  }
+
+  await walk(root);
+  return results.sort(compareTwinCatInputs);
+}
+
+async function pickTwinCatInputFromFolder(folder: string): Promise<string | undefined> {
+  const candidates = await findTwinCatInputsInFolder(folder);
+  if (candidates.length === 1) {
+    return candidates[0];
+  }
+  if (candidates.length > 1) {
+    const picked = await vscode.window.showQuickPick(
+      candidates.map((candidate) => ({
+        label: path.relative(folder, candidate),
+        description: candidate,
+        fsPath: candidate,
+      })),
+      {
+        title: "Select a TwinCAT project or source file to decode",
+        placeHolder: "Prefer the .sln file when decoding a full TwinCAT project.",
+      },
+    );
+    return picked?.fsPath;
+  }
+  return pickTwinCatInput(folder);
+}
+
+async function resolveDecodeInput(uri?: vscode.Uri): Promise<string | undefined> {
+  const selectedPath = uriToFsPath(uri);
+  if (!selectedPath) {
+    return pickTwinCatInput();
+  }
+  const stat = await fs.stat(selectedPath);
+  if (stat.isDirectory()) {
+    return pickTwinCatInputFromFolder(selectedPath);
+  }
+  return selectedPath;
+}
+
+async function findLikelyNativeRoot(inputPath: string): Promise<string> {
+  let current = path.dirname(path.resolve(inputPath));
+  while (true) {
+    try {
+      const entries = await fs.readdir(current, { withFileTypes: true });
+      if (entries.some((entry) => entry.isFile() && path.extname(entry.name).toLowerCase() === ".sln")) {
+        return current;
+      }
+    } catch {
+      return path.dirname(path.resolve(inputPath));
+    }
+    const parent = path.dirname(current);
+    if (parent === current) {
+      return path.dirname(path.resolve(inputPath));
+    }
+    current = parent;
+  }
 }
 
 async function pickStructuredRoot(uri?: vscode.Uri | string): Promise<string | undefined> {
@@ -127,26 +210,87 @@ async function confirmOverwriteOutput(outputPath: string): Promise<boolean | und
   return answer === "Overwrite" ? true : undefined;
 }
 
+async function resolveSafeDecodeOutputPath(inputPath: string, requestedOutputPath: string): Promise<string | undefined> {
+  let outputPath = path.resolve(requestedOutputPath);
+  while (true) {
+    const nativeRoot = await findLikelyNativeRoot(inputPath);
+    if (!isSameOrInside(outputPath, nativeRoot)) {
+      return outputPath;
+    }
+
+    const suggested = safeSuggestedDecodeOutputPath(inputPath, nativeRoot);
+    const answer = await vscode.window.showWarningMessage(
+      "The decode output folder is inside the TwinCAT project folder, so blark would copy the project into itself.",
+      {
+        modal: true,
+        detail: `Selected output: ${outputPath}\nTwinCAT project folder: ${nativeRoot}\nSuggested output: ${suggested}`,
+      },
+      "Use Suggested Folder",
+      "Choose Folder",
+    );
+    if (answer === "Use Suggested Folder") {
+      outputPath = suggested;
+      continue;
+    }
+    if (answer === "Choose Folder") {
+      const picked = await vscode.window.showOpenDialog({
+        canSelectFiles: false,
+        canSelectFolders: true,
+        canSelectMany: false,
+        defaultUri: vscode.Uri.file(path.dirname(nativeRoot)),
+        title: "Choose decode output folder outside the TwinCAT project",
+      });
+      if (!picked?.[0]) {
+        return undefined;
+      }
+      outputPath = picked[0].fsPath;
+      continue;
+    }
+    return undefined;
+  }
+}
+
+async function revealDecodedOutput(outputPath: string): Promise<void> {
+  const srcRoot = path.join(outputPath, "src");
+  if (!(await pathExists(srcRoot))) {
+    return;
+  }
+
+  const workspaceFolders = vscode.workspace.workspaceFolders ?? [];
+  const alreadyInWorkspace = workspaceFolders.some((folder) => isSameOrInside(srcRoot, folder.uri.fsPath));
+  if (!alreadyInWorkspace) {
+    vscode.workspace.updateWorkspaceFolders(workspaceFolders.length, 0, {
+      uri: vscode.Uri.file(outputPath),
+      name: `${path.basename(outputPath)} (blark ST)`,
+    });
+  }
+  await vscode.commands.executeCommand("revealInExplorer", vscode.Uri.file(srcRoot));
+}
+
 async function decodeProject(
   context: vscode.ExtensionContext,
   blark: BlarkProcess,
   tree: NativeReadonlyTreeProvider,
   uri?: vscode.Uri,
 ): Promise<void> {
-  const inputPath = uriToFsPath(uri) ?? (await pickTwinCatInput());
+  const inputPath = await resolveDecodeInput(uri);
   if (!inputPath) {
     return;
   }
-  if (!supportedTwinCatExtensions.has(path.extname(inputPath).toLowerCase())) {
+  if (!isSupportedTwinCatInput(inputPath)) {
     throw new Error(`${inputPath} is not a supported TwinCAT/blark input file.`);
   }
 
   const defaultOutput = defaultDecodeOutputPath(context, inputPath);
-  const outputPath = await vscode.window.showInputBox({
+  const requestedOutputPath = await vscode.window.showInputBox({
     title: "Decode TwinCAT project to Structured Text",
-    prompt: "Structured output folder",
+    prompt: "Structured output folder. It must be outside the TwinCAT project folder.",
     value: defaultOutput,
   });
+  if (!requestedOutputPath) {
+    return;
+  }
+  const outputPath = await resolveSafeDecodeOutputPath(inputPath, requestedOutputPath);
   if (!outputPath) {
     return;
   }
@@ -162,10 +306,7 @@ async function decodeProject(
   );
 
   tree.refresh();
-  const srcRoot = path.join(outputPath, "src");
-  if (await pathExists(srcRoot)) {
-    await vscode.commands.executeCommand("revealInExplorer", vscode.Uri.file(srcRoot));
-  }
+  await revealDecodedOutput(outputPath);
   vscode.window.showInformationMessage(`Decoded TwinCAT project to ${outputPath}. Edit ST files under src/.`);
 }
 

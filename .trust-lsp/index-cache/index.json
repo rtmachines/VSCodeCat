@@ -1,77 +1,11 @@
 {
   "version": 1,
   "entries": {
-    "c:\\Users\\rato\\Documents\\GitHub\\VSCodeCat\\blark\\tests\\source\\commas_in_case.st": {
-      "hash": 16721844469937302377,
-      "size": 661,
-      "mtime": 1779774487,
-      "content": "(*<textarea rows=\"15\" cols=\"81\">\r\n********************************************************************************\r\n* Comments\r\n********************************************************************************\r\n</textarea>*)\r\nFUNCTION fun_CommainCase : BOOL\r\nVAR_INPUT\r\n    (* Byte to be evaluated as a printable character. *)\r\n    character : BYTE;\r\nEND_VAR\r\n\r\nCASE character OF\r\n    (*\r\n    Any character that falls in the ascii range (in base-10)\r\n    0-8, 11, 12, 14-27 or >=127 is an invalid character.\r\n    *)\r\n    BYTE#9..BYTE#10, BYTE#13, BYTE#28..BYTE#126:\r\n        fun_CommainCase := TRUE;\r\nELSE\r\n    fun_CommainCase := FALSE;\r\nEND_CASE\r\nEND_FUNCTION\r\n"
-    },
-    "c:\\Users\\rato\\Documents\\GitHub\\VSCodeCat\\blark\\tests\\source\\extended_union.st": {
-      "hash": 10539860919643591368,
-      "size": 119,
-      "mtime": 1779774487,
-      "content": "TYPE THING EXTENDS THING_BASE:\r\nUNION\r\n\t{attribute 'hide' := 'true'}\r\n\tAs_THING_BASE : THING_BASE;\r\nEND_UNION\r\nEND_TYPE"
-    },
-    "c:\\Users\\rato\\Documents\\GitHub\\VSCodeCat\\blark\\tests\\source\\array_of_arrays.st": {
-      "hash": 7268456441309469674,
-      "size": 291,
-      "mtime": 1779774487,
-      "content": "{attribute 'hide'}\r\nMETHOD prv_Detection : BOOL\r\nVAR_IN_OUT\r\n        currentChannel : ARRAY[APhase..CPhase] OF ARRAY [1..5] OF INT := [\r\n                [1, 2, 3, 4, 5],\r\n                [1, 2, 3, 4, 5],\r\n                [1, 2, 3, 4, 5]\r\n        ];\r\nEND_VAR\r\n\r\n// do some stuff\r\nEND_METHOD\r\n"
-    },
-    "c:\\Users\\rato\\Documents\\GitHub\\VSCodeCat\\blark\\tests\\source\\array_initializer.st": {
-      "hash": 15734107690381796741,
-      "size": 1018,
-      "mtime": 1779774487,
-      "content": "(* This program creates an array of objects using array initialization. *)\r\nPROGRAM oop_test\r\nVAR\r\n    runners : ARRAY[RunnerTasks.RUNNER_START+1..RunnerTasks.RUNNER_END-1] OF FB_Runner[\r\n        (instanceName := 'one'),\r\n        (instanceName := 'two'),\r\n        (instanceName := 'three'),\r\n        (instanceName := 'four'),\r\n        (instanceName := 'five'),\r\n        (instanceName := 'six'),\r\n        (instanceName := 'seven'),\r\n        (instanceName := 'eight'),\r\n        (instanceName := 'nine'),\r\n        (instanceName := 'ten'),\r\n        (instanceName := 'elevin'),\r\n        (instanceName := 'thirteen'),\r\n        (instanceName := 'fourteen'),\r\n        (instanceName := 'fifteen'),\r\n        (instanceName := 'sixteen'),\r\n        (instanceName := 'seventeen'),\r\n        (instanceName := 'eighteen')\r\n    ];\r\n    aSample   : ARRAY[1..2] OF FB_Sample[(nInitParam := 4), (nInitParam := 7)]\r\n                            := [(nInput := 5, nMyProperty := 6), (nInput := 8, nMyProperty := 9)];\r\nEND_VAR\r\n\r\nEND_PROGRAM\r\n"
-    },
-    "c:\\Users\\rato\\Documents\\GitHub\\VSCodeCat\\blark\\tests\\source\\fb_w_public_access.st": {
-      "hash": 4652618087928859679,
-      "size": 139,
-      "mtime": 1779774487,
-      "content": "FUNCTION_BLOCK PUBLIC class_PublicFB\r\n    VAR_OUTPUT\r\n        (*Some comment.*)\r\n        Error     : BOOL;\r\n    END_VAR\r\nEND_FUNCTION_BLOCK"
-    },
     "c:\\Users\\rato\\Documents\\GitHub\\VSCodeCat\\blark\\tests\\source\\dereference_method.st": {
       "hash": 16488412282920445132,
       "size": 194,
       "mtime": 1779774487,
       "content": "METHOD DoSomething\r\nVAR\r\n    Something : BOOL;\r\nEND_VAR\r\n\r\nSomething := anObject.WriteLine(THIS^.something.t, THIS^.GetTagName()^, INT_TO_STRING(BOOL_TO_INT(THIS^.someAttribute)));\r\n\r\nEND_METHOD"
-    },
-    "c:\\Users\\rato\\Documents\\GitHub\\VSCodeCat\\blark\\tests\\source\\stray_comment.st": {
-      "hash": 4548941895328993230,
-      "size": 368,
-      "mtime": 1779774487,
-      "content": "(* Call this method to truncate an LREAL value *);\r\n{attribute 'hide'}\r\nMETHOD prv_Floor : LREAL\r\nVAR_INPUT\r\n        Input : LREAL;\r\nEND_VAR\r\nVAR\r\n        Round : LINT;\r\nEND_VAR\r\nRound := LREAL_TO_LINT(Input);\r\nIF LINT_TO_LREAL(Round) <= Input THEN\r\n        prv_Floor := LINT_TO_LREAL(Round);\r\nELSE\r\n        prv_Floor := LINT_TO_LREAL(Round - 1);\r\nEND_IF\r\nEND_METHOD\r\n"
-    },
-    "c:\\Users\\rato\\Documents\\GitHub\\VSCodeCat\\blark\\tests\\source\\object_oriented_dotaccess.st": {
-      "hash": 7685126226967224837,
-      "size": 594,
-      "mtime": 1779774487,
-      "content": "(* This program uses some object-oriented function-block with multiline access. *)\r\nPROGRAM oop_test\r\nVAR\r\n        uut : SomeFunctionBlock;\r\nEND_VAR\r\n\r\n// Use an object that has a different method called on each line\r\nuut.DoSomething(input_1:='foo', input_2:='bar')\r\n   .DoSomethingElse(input_1:=5)\r\n   .Finish();\r\n\r\n// Or perhaps something that's a little more tame\r\nuut.DoSomething(input_1:='foo', input_2:='bar')\r\n   .DoSomethingElse(input_1:=5).Finish();\r\n\r\n// Or something tamer, still\r\nuut.DoSomething(input_1:='foo', input_2:='bar').DoSomethingElse(input_1:=5).Finish();\r\n\r\nEND_PROGRAM\r\n"
-    },
-    "c:\\Users\\rato\\Documents\\GitHub\\VSCodeCat\\blark\\tests\\source\\array_of_objects.st": {
-      "hash": 11150870128613691024,
-      "size": 191,
-      "mtime": 1779774487,
-      "content": "{attribute 'hide'}\r\nMETHOD prv_Detection : BOOL\r\nVAR_IN_OUT\r\n        currentChannel : ARRAY[APhase..CPhase] OF class_baseVector(SIZEOF(vector_t),0);\r\nEND_VAR\r\n\r\n// do some stuff\r\nEND_METHOD\r\n"
-    },
-    "c:\\Users\\rato\\Documents\\GitHub\\VSCodeCat\\blark\\tests\\source\\fb_initializer.st": {
-      "hash": 12486406617961089052,
-      "size": 202,
-      "mtime": 1779774487,
-      "content": "(* This program creates a function block instance with initialization. *)\r\nPROGRAM oop_test\r\nVAR\r\n    fbSample  : FB_Sample(nInitParam := 1) := (nInput := 2, nMyProperty := 3);\r\nEND_VAR\r\n\r\nEND_PROGRAM\r\n"
-    },
-    "c:\\Users\\rato\\Documents\\GitHub\\VSCodeCat\\blark\\tests\\source\\array_of_addresses.st": {
-      "hash": 9791689706563361528,
-      "size": 697,
-      "mtime": 1779774487,
-      "content": "FUNCTION_BLOCK class_SomethingCool\r\nVAR\r\n        currentChannel : ARRAY[1..g_c_someConstant] OF POINTER TO struct_groupData :=\r\n                [       ADR(_object[1].someValue),\r\n                        ADR(_object[2].someValue),\r\n                        ADR(_object[3].someValue),\r\n                        ADR(_object[4].someValue),\r\n                        ADR(_object[5].someValue),\r\n                        ADR(_object[6].someValue),\r\n                        ADR(_object[7].someValue),\r\n                        ADR(_object[8].someValue),\r\n                        ADR(_object[9].someValue),\r\n                        ADR(_object[10].someValue)\r\n                ];\r\nEND_VAR\r\nEND_FUNCTION_BLOCK\r\n"
-    },
-    "c:\\Users\\rato\\Documents\\GitHub\\VSCodeCat\\blark\\tests\\source\\var_declarations_var_attrib.st": {
-      "hash": 12058520297737652164,
-      "size": 115,
-      "mtime": 1779774487,
-      "content": "PROGRAM Test\r\nVAR CONSTANT\r\n    RetainInt: INT;\r\nEND_VAR\r\nVAR RETAIN\r\n    constantInt: INT;\r\nEND_VAR\r\nEND_PROGRAM\r\n"
     },
     "c:\\Users\\rato\\Documents\\GitHub\\VSCodeCat\\blark\\tests\\source\\array_with_integer_initializer.st": {
       "hash": 12817675573757859382,
@@ -85,23 +19,89 @@
       "mtime": 1779774487,
       "content": "(*<textarea rows=\"15\" cols=\"81\">\r\n********************************************************************************\r\n**** a great, big, long multiline comment\r\n********************************************************************************\r\n</textarea>*)\r\nMETHOD Split : POINTER TO STRING (*Returns a pointer to an error string.\r\nReturns zero on success.*)\r\nVAR_IN_OUT\r\n    (* The class_SELString containing the combination of characters to denote \r\nthe locations where the split shall occur.*)\r\n    sep    : class_Object;\r\nEND_VAR\r\n\r\nIF TestOne AND_THEN TestTwo THEN\r\n    DoSomething();\r\nELSIF TestThree OR_ELSE TestFour THEN\r\n    DoSomethingElse();\r\nEND_IF\r\n\r\nEND_METHOD"
     },
-    "c:\\Users\\rato\\Documents\\GitHub\\VSCodeCat\\blark\\tests\\source\\enum_with_function_calls.st": {
-      "hash": 1942225535147317880,
-      "size": 209,
+    "c:\\Users\\rato\\Documents\\GitHub\\VSCodeCat\\blark\\tests\\source\\object_oriented_dotaccess.st": {
+      "hash": 7685126226967224837,
+      "size": 594,
       "mtime": 1779774487,
-      "content": "{attribute 'qualified_only'}\r\n{attribute 'to_string'}\r\nTYPE color :\r\n(\r\n   off := ANY_TO_DINT(someColor.off),\r\n   red := ANY_TO_DINT(someColor.red),\r\n   green := ANY_TO_DINT(someColor.green)\r\n) DINT;\r\nEND_TYPE"
+      "content": "(* This program uses some object-oriented function-block with multiline access. *)\r\nPROGRAM oop_test\r\nVAR\r\n        uut : SomeFunctionBlock;\r\nEND_VAR\r\n\r\n// Use an object that has a different method called on each line\r\nuut.DoSomething(input_1:='foo', input_2:='bar')\r\n   .DoSomethingElse(input_1:=5)\r\n   .Finish();\r\n\r\n// Or perhaps something that's a little more tame\r\nuut.DoSomething(input_1:='foo', input_2:='bar')\r\n   .DoSomethingElse(input_1:=5).Finish();\r\n\r\n// Or something tamer, still\r\nuut.DoSomething(input_1:='foo', input_2:='bar').DoSomethingElse(input_1:=5).Finish();\r\n\r\nEND_PROGRAM\r\n"
     },
-    "c:\\Users\\rato\\Documents\\GitHub\\VSCodeCat\\blark\\tests\\source\\repeated_declaration.st": {
-      "hash": 1822563344755103904,
-      "size": 119,
+    "c:\\Users\\rato\\Documents\\GitHub\\VSCodeCat\\blark\\tests\\source\\fb_w_public_access.st": {
+      "hash": 4652618087928859679,
+      "size": 139,
       "mtime": 1779774487,
-      "content": "TYPE someStruct :\r\nSTRUCT\r\n        AlertTimer, SignalBadTimer, QualityBadTimer : library.TPUDO;\r\nEND_STRUCT\r\nEND_TYPE\r\n"
+      "content": "FUNCTION_BLOCK PUBLIC class_PublicFB\r\n    VAR_OUTPUT\r\n        (*Some comment.*)\r\n        Error     : BOOL;\r\n    END_VAR\r\nEND_FUNCTION_BLOCK"
     },
     "c:\\Users\\rato\\Documents\\GitHub\\VSCodeCat\\blark\\tests\\source\\type_and_fb.st": {
       "hash": 15514199862160316881,
       "size": 276,
       "mtime": 1779774487,
       "content": "TYPE\r\n    color: (red, green, blue);\r\nEND_TYPE\r\n\r\nFUNCTION_BLOCK Testblock\r\n    VAR_INPUT\r\n        number_of_boxes: INT;\r\n    END_VAR\r\n    VAR\r\n        cabinet: color;\r\n    END_VAR\r\n\r\n    IF number_of_boxes > 1 THEN\r\n        cabinet := green;\r\n    END_IF\r\nEND_FUNCTION_BLOCK\r\n"
+    },
+    "c:\\Users\\rato\\Documents\\GitHub\\VSCodeCat\\blark\\tests\\source\\extended_union.st": {
+      "hash": 10539860919643591368,
+      "size": 119,
+      "mtime": 1779774487,
+      "content": "TYPE THING EXTENDS THING_BASE:\r\nUNION\r\n\t{attribute 'hide' := 'true'}\r\n\tAs_THING_BASE : THING_BASE;\r\nEND_UNION\r\nEND_TYPE"
+    },
+    "c:\\Users\\rato\\Documents\\GitHub\\VSCodeCat\\blark\\tests\\source\\array_initializer.st": {
+      "hash": 15734107690381796741,
+      "size": 1018,
+      "mtime": 1779774487,
+      "content": "(* This program creates an array of objects using array initialization. *)\r\nPROGRAM oop_test\r\nVAR\r\n    runners : ARRAY[RunnerTasks.RUNNER_START+1..RunnerTasks.RUNNER_END-1] OF FB_Runner[\r\n        (instanceName := 'one'),\r\n        (instanceName := 'two'),\r\n        (instanceName := 'three'),\r\n        (instanceName := 'four'),\r\n        (instanceName := 'five'),\r\n        (instanceName := 'six'),\r\n        (instanceName := 'seven'),\r\n        (instanceName := 'eight'),\r\n        (instanceName := 'nine'),\r\n        (instanceName := 'ten'),\r\n        (instanceName := 'elevin'),\r\n        (instanceName := 'thirteen'),\r\n        (instanceName := 'fourteen'),\r\n        (instanceName := 'fifteen'),\r\n        (instanceName := 'sixteen'),\r\n        (instanceName := 'seventeen'),\r\n        (instanceName := 'eighteen')\r\n    ];\r\n    aSample   : ARRAY[1..2] OF FB_Sample[(nInitParam := 4), (nInitParam := 7)]\r\n                            := [(nInput := 5, nMyProperty := 6), (nInput := 8, nMyProperty := 9)];\r\nEND_VAR\r\n\r\nEND_PROGRAM\r\n"
+    },
+    "c:\\Users\\rato\\Documents\\GitHub\\VSCodeCat\\blark\\tests\\source\\commas_in_case.st": {
+      "hash": 16721844469937302377,
+      "size": 661,
+      "mtime": 1779774487,
+      "content": "(*<textarea rows=\"15\" cols=\"81\">\r\n********************************************************************************\r\n* Comments\r\n********************************************************************************\r\n</textarea>*)\r\nFUNCTION fun_CommainCase : BOOL\r\nVAR_INPUT\r\n    (* Byte to be evaluated as a printable character. *)\r\n    character : BYTE;\r\nEND_VAR\r\n\r\nCASE character OF\r\n    (*\r\n    Any character that falls in the ascii range (in base-10)\r\n    0-8, 11, 12, 14-27 or >=127 is an invalid character.\r\n    *)\r\n    BYTE#9..BYTE#10, BYTE#13, BYTE#28..BYTE#126:\r\n        fun_CommainCase := TRUE;\r\nELSE\r\n    fun_CommainCase := FALSE;\r\nEND_CASE\r\nEND_FUNCTION\r\n"
+    },
+    "c:\\Users\\rato\\Documents\\GitHub\\VSCodeCat\\blark\\tests\\source\\array_of_objects.st": {
+      "hash": 11150870128613691024,
+      "size": 191,
+      "mtime": 1779774487,
+      "content": "{attribute 'hide'}\r\nMETHOD prv_Detection : BOOL\r\nVAR_IN_OUT\r\n        currentChannel : ARRAY[APhase..CPhase] OF class_baseVector(SIZEOF(vector_t),0);\r\nEND_VAR\r\n\r\n// do some stuff\r\nEND_METHOD\r\n"
+    },
+    "c:\\Users\\rato\\Documents\\GitHub\\VSCodeCat\\blark\\tests\\source\\var_declarations_var_attrib.st": {
+      "hash": 12058520297737652164,
+      "size": 115,
+      "mtime": 1779774487,
+      "content": "PROGRAM Test\r\nVAR CONSTANT\r\n    RetainInt: INT;\r\nEND_VAR\r\nVAR RETAIN\r\n    constantInt: INT;\r\nEND_VAR\r\nEND_PROGRAM\r\n"
+    },
+    "c:\\Users\\rato\\Documents\\GitHub\\VSCodeCat\\blark\\tests\\source\\fb_initializer.st": {
+      "hash": 12486406617961089052,
+      "size": 202,
+      "mtime": 1779774487,
+      "content": "(* This program creates a function block instance with initialization. *)\r\nPROGRAM oop_test\r\nVAR\r\n    fbSample  : FB_Sample(nInitParam := 1) := (nInput := 2, nMyProperty := 3);\r\nEND_VAR\r\n\r\nEND_PROGRAM\r\n"
+    },
+    "c:\\Users\\rato\\Documents\\GitHub\\VSCodeCat\\blark\\tests\\source\\enum_with_function_calls.st": {
+      "hash": 1942225535147317880,
+      "size": 209,
+      "mtime": 1779774487,
+      "content": "{attribute 'qualified_only'}\r\n{attribute 'to_string'}\r\nTYPE color :\r\n(\r\n   off := ANY_TO_DINT(someColor.off),\r\n   red := ANY_TO_DINT(someColor.red),\r\n   green := ANY_TO_DINT(someColor.green)\r\n) DINT;\r\nEND_TYPE"
+    },
+    "c:\\Users\\rato\\Documents\\GitHub\\VSCodeCat\\blark\\tests\\source\\array_of_addresses.st": {
+      "hash": 9791689706563361528,
+      "size": 697,
+      "mtime": 1779774487,
+      "content": "FUNCTION_BLOCK class_SomethingCool\r\nVAR\r\n        currentChannel : ARRAY[1..g_c_someConstant] OF POINTER TO struct_groupData :=\r\n                [       ADR(_object[1].someValue),\r\n                        ADR(_object[2].someValue),\r\n                        ADR(_object[3].someValue),\r\n                        ADR(_object[4].someValue),\r\n                        ADR(_object[5].someValue),\r\n                        ADR(_object[6].someValue),\r\n                        ADR(_object[7].someValue),\r\n                        ADR(_object[8].someValue),\r\n                        ADR(_object[9].someValue),\r\n                        ADR(_object[10].someValue)\r\n                ];\r\nEND_VAR\r\nEND_FUNCTION_BLOCK\r\n"
+    },
+    "c:\\Users\\rato\\Documents\\GitHub\\VSCodeCat\\blark\\tests\\source\\array_of_arrays.st": {
+      "hash": 7268456441309469674,
+      "size": 291,
+      "mtime": 1779774487,
+      "content": "{attribute 'hide'}\r\nMETHOD prv_Detection : BOOL\r\nVAR_IN_OUT\r\n        currentChannel : ARRAY[APhase..CPhase] OF ARRAY [1..5] OF INT := [\r\n                [1, 2, 3, 4, 5],\r\n                [1, 2, 3, 4, 5],\r\n                [1, 2, 3, 4, 5]\r\n        ];\r\nEND_VAR\r\n\r\n// do some stuff\r\nEND_METHOD\r\n"
+    },
+    "c:\\Users\\rato\\Documents\\GitHub\\VSCodeCat\\blark\\tests\\source\\stray_comment.st": {
+      "hash": 4548941895328993230,
+      "size": 368,
+      "mtime": 1779774487,
+      "content": "(* Call this method to truncate an LREAL value *);\r\n{attribute 'hide'}\r\nMETHOD prv_Floor : LREAL\r\nVAR_INPUT\r\n        Input : LREAL;\r\nEND_VAR\r\nVAR\r\n        Round : LINT;\r\nEND_VAR\r\nRound := LREAL_TO_LINT(Input);\r\nIF LINT_TO_LREAL(Round) <= Input THEN\r\n        prv_Floor := LINT_TO_LREAL(Round);\r\nELSE\r\n        prv_Floor := LINT_TO_LREAL(Round - 1);\r\nEND_IF\r\nEND_METHOD\r\n"
+    },
+    "c:\\Users\\rato\\Documents\\GitHub\\VSCodeCat\\blark\\tests\\source\\repeated_declaration.st": {
+      "hash": 1822563344755103904,
+      "size": 119,
+      "mtime": 1779774487,
+      "content": "TYPE someStruct :\r\nSTRUCT\r\n        AlertTimer, SignalBadTimer, QualityBadTimer : library.TPUDO;\r\nEND_STRUCT\r\nEND_TYPE\r\n"
     },
     "c:\\Users\\rato\\Documents\\GitHub\\VSCodeCat\\blark\\tests\\source\\pointer_to_pointer_to.st": {
       "hash": 4358547297399532845,

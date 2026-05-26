@@ -68,7 +68,7 @@
       "explorer/context": [
         {
           "command": "twincatBlark.decodeProject",
-          "when": "resourceExtname =~ /^\\.(sln|tsproj|plcproj|TcPOU|TcGVL|TcDUT|TcIO|TcTTO)$/i",
+          "when": "explorerResourceIsFolder || resourceExtname =~ /^\\.(sln|tsproj|plcproj|TcPOU|TcGVL|TcDUT|TcIO|TcTTO)$/i",
           "group": "navigation@80"
         },
         {
@@ -118,8 +118,8 @@
         },
         "twincatBlark.decodeOutputRoot": {
           "type": "string",
-          "default": "${workspaceFolder}/.twincat-st",
-          "description": "Default parent folder for decoded Structured Text workspaces."
+          "default": "${workspaceFolder}/../.twincat-st",
+          "description": "Default parent folder for decoded Structured Text workspaces. Keep this outside the TwinCAT project folder so blark can copy the native project tree safely."
         },
         "twincatBlark.encodeStagingRoot": {
           "type": "string",

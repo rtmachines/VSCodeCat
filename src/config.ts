@@ -17,7 +17,7 @@ export function settings(): ExtensionSettings {
   const config = vscode.workspace.getConfiguration("twincatBlark");
   return {
     exePath: config.get<string>("exePath", ""),
-    decodeOutputRoot: config.get<string>("decodeOutputRoot", "${workspaceFolder}/.twincat-st"),
+    decodeOutputRoot: config.get<string>("decodeOutputRoot", "${workspaceFolder}/../.twincat-st"),
     encodeStagingRoot: config.get<string>("encodeStagingRoot", "${workspaceFolder}/.blark/encoded"),
     backupsEnabled: config.get<boolean>("backups.enabled", true),
     backupsLocation: config.get<string>("backups.location", "${workspaceFolder}/.blark/backups"),
