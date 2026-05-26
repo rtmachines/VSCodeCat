@@ -17,6 +17,7 @@ export interface BlarkManifestItem {
   part?: string;
   grammarRule?: string;
   grammar_rule?: string;
+  implicit_end?: string;
   contentHash?: string;
 }
 

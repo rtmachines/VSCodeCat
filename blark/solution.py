@@ -612,6 +612,36 @@ class TcIO(TcSource):
             if child.tag not in ("Declaration", "Implementation")
         ]
 
+    @property
+    def parts_by_name(self) -> dict[str, Union["TcMethod", "TcProperty"]]:
+        return {
+            part.name: part
+            for part in self.parts
+            if isinstance(part, (TcMethod, TcProperty))
+        }
+
+    def get_child_by_identifier(
+        self, identifier: str
+    ) -> Union["TcMethod", "TcProperty", TcDeclImpl]:
+        ident = Identifier.from_string(identifier)
+        if len(ident.parts) < 1:
+            raise ValueError("Empty identifier")
+
+        if ident.parts[0] != self.name:
+            raise ValueError(
+                f"Unexpected identifier to rewrite for interface {self.name}: "
+                f"{ident.parts[0]} ({ident.decl_impl})"
+            )
+
+        if len(ident.parts) == 1:
+            return self.decl
+
+        return self.parts_by_name[ident.parts[1]]
+
+    def rewrite_code(self, identifier: str, contents: str):
+        part = self.get_child_by_identifier(identifier)
+        return part.rewrite_code(identifier, contents)
+
     def to_blark(self) -> list[Union[BlarkCompositeSourceItem, BlarkSourceItem]]:
         if self.source_type is None:
             raise RuntimeError("No source type set?")

@@ -231,6 +231,48 @@ def test_project_encode_applies_nested_member_change_from_split_st(
     assert "GVL_Logger.nGlobAccEvents := 1;" in encoded_code
 
 
+def test_project_encode_applies_interface_change_from_split_st(
+    tmp_path: pathlib.Path,
+):
+    structured = tmp_path / "structured"
+    native_output = tmp_path / "native_output"
+
+    manifest = project.decode(LCLS_GENERAL_SOLUTION, structured)
+    interface = next(
+        item
+        for item in manifest["items"]
+        if item["identifier"] == "I_Interface/declaration"
+    )
+    method = next(
+        item
+        for item in manifest["items"]
+        if item["identifier"] == "I_Interface.Method1/declaration"
+    )
+    interface_path = structured / interface["path"]
+    method_path = structured / method["path"]
+    interface_path.write_text(
+        interface_path.read_text(encoding="utf-8").replace(
+            "iVar1 : INT;",
+            "iVar1 : DINT;",
+        ),
+        encoding="utf-8",
+    )
+    method_path.write_text(
+        method_path.read_text(encoding="utf-8").replace(
+            "VAR_INPUT\nEND_VAR",
+            "VAR_INPUT\n\tiMethodInput : INT;\nEND_VAR",
+        ),
+        encoding="utf-8",
+    )
+
+    project.encode(structured, native_output)
+
+    encoded_source = native_output / interface["source_path"]
+    encoded_code = encoded_source.read_text(encoding="utf-8-sig")
+    assert "iVar1 : DINT;" in encoded_code
+    assert "iMethodInput : INT;" in encoded_code
+
+
 def test_project_cli_decode_via_top_level(
     tmp_path: pathlib.Path,
     monkeypatch: pytest.MonkeyPatch,

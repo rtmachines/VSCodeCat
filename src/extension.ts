@@ -12,6 +12,17 @@ import {
   safeSuggestedDecodeOutputPath,
 } from "./blark/DecodePaths";
 import {
+  createDecodedFolder,
+  createDecodedMember,
+  createDecodedProjectItem,
+  FunctionBlockVariant,
+  listProjectInterfaces,
+  MemberItemKind,
+  ProjectItemKind,
+  validateDecodedFolderName,
+  validateDecodedIdentifier,
+} from "./blark/DecodedProjectCreation";
+import {
   findStructuredRoot,
   getOriginalNativeRoot,
   loadManifest,
@@ -75,7 +86,7 @@ function defaultStagingPath(context: vscode.ExtensionContext, structuredRoot: st
 async function pickTwinCatInput(defaultFolder?: string): Promise<string | undefined> {
   const picked = await vscode.window.showOpenDialog({
     canSelectFiles: true,
-    canSelectFolders: false,
+    canSelectFolders: true,
     canSelectMany: false,
     defaultUri: defaultFolder ? vscode.Uri.file(defaultFolder) : undefined,
     filters: {
@@ -144,13 +155,46 @@ async function pickTwinCatInputFromFolder(folder: string): Promise<string | unde
 async function resolveDecodeInput(uri?: vscode.Uri): Promise<string | undefined> {
   const selectedPath = uriToFsPath(uri);
   if (!selectedPath) {
-    return pickTwinCatInput();
+    const picked = await pickTwinCatInput();
+    if (!picked) {
+      return undefined;
+    }
+    const stat = await fs.stat(picked);
+    if (stat.isDirectory()) {
+      return pickTwinCatInputFromFolder(picked);
+    }
+    return picked;
   }
   const stat = await fs.stat(selectedPath);
   if (stat.isDirectory()) {
     return pickTwinCatInputFromFolder(selectedPath);
   }
   return selectedPath;
+}
+
+async function defaultDialogFolderFromUri(uri?: vscode.Uri): Promise<string | undefined> {
+  const selectedPath = uriToFsPath(uri);
+  if (!selectedPath) {
+    return workspaceFolderForPath();
+  }
+  try {
+    const stat = await fs.stat(selectedPath);
+    return stat.isDirectory() ? selectedPath : path.dirname(selectedPath);
+  } catch {
+    return path.dirname(selectedPath);
+  }
+}
+
+async function resolveInputFromStandardDialog(uri?: vscode.Uri): Promise<string | undefined> {
+  const selected = await pickTwinCatInput(await defaultDialogFolderFromUri(uri));
+  if (!selected) {
+    return undefined;
+  }
+  const stat = await fs.stat(selected);
+  if (stat.isDirectory()) {
+    return pickTwinCatInputFromFolder(selected);
+  }
+  return selected;
 }
 
 async function findLikelyNativeRoot(inputPath: string): Promise<string> {
@@ -267,16 +311,12 @@ async function revealDecodedOutput(outputPath: string): Promise<void> {
   await vscode.commands.executeCommand("revealInExplorer", vscode.Uri.file(srcRoot));
 }
 
-async function decodeProject(
+async function decodeInputPath(
   context: vscode.ExtensionContext,
   blark: BlarkProcess,
   tree: NativeReadonlyTreeProvider,
-  uri?: vscode.Uri,
+  inputPath: string,
 ): Promise<void> {
-  const inputPath = await resolveDecodeInput(uri);
-  if (!inputPath) {
-    return;
-  }
   if (!isSupportedTwinCatInput(inputPath)) {
     throw new Error(`${inputPath} is not a supported TwinCAT/blark input file.`);
   }
@@ -308,6 +348,32 @@ async function decodeProject(
   tree.refresh();
   await revealDecodedOutput(outputPath);
   vscode.window.showInformationMessage(`Decoded TwinCAT project to ${outputPath}. Edit ST files under src/.`);
+}
+
+async function decodeProject(
+  context: vscode.ExtensionContext,
+  blark: BlarkProcess,
+  tree: NativeReadonlyTreeProvider,
+  uri?: vscode.Uri,
+): Promise<void> {
+  const inputPath = await resolveDecodeInput(uri);
+  if (!inputPath) {
+    return;
+  }
+  await decodeInputPath(context, blark, tree, inputPath);
+}
+
+async function openProjectFrom(
+  context: vscode.ExtensionContext,
+  blark: BlarkProcess,
+  tree: NativeReadonlyTreeProvider,
+  uri?: vscode.Uri,
+): Promise<void> {
+  const inputPath = await resolveInputFromStandardDialog(uri);
+  if (!inputPath) {
+    return;
+  }
+  await decodeInputPath(context, blark, tree, inputPath);
 }
 
 function changedFilesDetail(changes: Awaited<ReturnType<typeof diffTrees>>): string {
@@ -421,6 +487,146 @@ async function rebuildMetadata(
   );
 }
 
+function decodedCommandTarget(uri?: vscode.Uri): string | undefined {
+  return uriToFsPath(uri) ?? vscode.window.activeTextEditor?.document.uri.fsPath;
+}
+
+async function promptForIdentifier(title: string, defaultValue: string, label = "Name"): Promise<string | undefined> {
+  return vscode.window.showInputBox({
+    title,
+    prompt: `${label} for the new TwinCAT item.`,
+    value: defaultValue,
+    validateInput: (value) => validateDecodedIdentifier(value, label),
+  });
+}
+
+async function openCreatedPath(createdPath?: string): Promise<void> {
+  if (!createdPath) {
+    return;
+  }
+  const uri = vscode.Uri.file(createdPath);
+  try {
+    const stat = await fs.stat(createdPath);
+    if (stat.isDirectory()) {
+      await vscode.commands.executeCommand("revealInExplorer", uri);
+      return;
+    }
+  } catch {
+    return;
+  }
+  const document = await vscode.workspace.openTextDocument(uri);
+  await vscode.window.showTextDocument(document, { preview: false });
+}
+
+function defaultProjectItemName(kind: ProjectItemKind): string {
+  if (kind === "function") {
+    return "F_NewFunction";
+  }
+  if (kind === "functionBlock") {
+    return "FB_NewFunctionBlock";
+  }
+  if (kind === "dut") {
+    return "ST_NewType";
+  }
+  return "I_NewInterface";
+}
+
+async function createDecodedFolderCommand(uri?: vscode.Uri): Promise<void> {
+  const targetPath = decodedCommandTarget(uri);
+  if (!targetPath) {
+    throw new Error("Select a decoded blark project folder before creating a TwinCAT folder.");
+  }
+  const name = await vscode.window.showInputBox({
+    title: "Create TwinCAT Folder",
+    prompt: "Folder name to add to the decoded project and native PLC project.",
+    value: "NewFolder",
+    validateInput: validateDecodedFolderName,
+  });
+  if (!name) {
+    return;
+  }
+  const created = await createDecodedFolder({ targetPath, name });
+  await openCreatedPath(created.openPath);
+  vscode.window.showInformationMessage(`Created TwinCAT folder ${name}.`);
+}
+
+async function createDecodedProjectItemCommand(
+  kind: ProjectItemKind,
+  functionBlockVariant: FunctionBlockVariant | undefined,
+  uri?: vscode.Uri,
+): Promise<void> {
+  const targetPath = decodedCommandTarget(uri);
+  if (!targetPath) {
+    throw new Error("Select a decoded blark project folder before creating a TwinCAT item.");
+  }
+
+  let baseName: string | undefined;
+  let implementedInterfaces: string[] | undefined;
+  if (kind === "functionBlock" && functionBlockVariant === "derived") {
+    baseName = await promptForIdentifier("Create Derived Function Block", "FB_Base", "Base function block");
+    if (!baseName) {
+      return;
+    }
+  }
+  if (kind === "functionBlock" && functionBlockVariant === "implements") {
+    const interfaces = await listProjectInterfaces(targetPath);
+    if (interfaces.length === 0) {
+      throw new Error("No interfaces were found in this decoded project.");
+    }
+    const picked = await vscode.window.showQuickPick(
+      interfaces.map((interfaceName) => ({ label: interfaceName })),
+      {
+        canPickMany: true,
+        title: "Select interfaces to implement",
+        placeHolder: "The new function block will implement the selected project interface(s).",
+      },
+    );
+    if (!picked || picked.length === 0) {
+      return;
+    }
+    implementedInterfaces = picked.map((item) => item.label);
+  }
+
+  const title =
+    kind === "function"
+      ? "Create Function"
+      : kind === "functionBlock"
+        ? "Create Function Block"
+        : kind === "dut"
+          ? "Create DUT"
+          : "Create Interface";
+  const name = await promptForIdentifier(title, defaultProjectItemName(kind));
+  if (!name) {
+    return;
+  }
+
+  const created = await createDecodedProjectItem({
+    targetPath,
+    name,
+    kind,
+    functionBlockVariant,
+    baseName,
+    implementedInterfaces,
+  });
+  await openCreatedPath(created.openPath);
+  vscode.window.showInformationMessage(`Created TwinCAT ${title.replace("Create ", "").toLowerCase()} ${name}.`);
+}
+
+async function createDecodedMemberCommand(kind: MemberItemKind, uri?: vscode.Uri): Promise<void> {
+  const targetPath = decodedCommandTarget(uri);
+  if (!targetPath) {
+    throw new Error("Select a decoded function block or interface before creating a member.");
+  }
+  const title = kind === "method" ? "Create Method" : "Create Property";
+  const name = await promptForIdentifier(title, kind === "method" ? "NewMethod" : "NewProperty");
+  if (!name) {
+    return;
+  }
+  const created = await createDecodedMember({ targetPath, name, kind });
+  await openCreatedPath(created.openPath);
+  vscode.window.showInformationMessage(`Created TwinCAT ${kind} ${name}.`);
+}
+
 async function openNativeReadonly(uriOrPath?: vscode.Uri | string | { fsPath?: string }): Promise<void> {
   const filePath = uriToFsPath(uriOrPath) ?? vscode.window.activeTextEditor?.document.uri.fsPath;
   if (!filePath) {
@@ -473,6 +679,10 @@ export function activate(context: vscode.ExtensionContext): void {
       handleCommandErrors((uri?: vscode.Uri) => decodeProject(context, blark, tree, uri)),
     ),
     vscode.commands.registerCommand(
+      "twincatBlark.openProjectFrom",
+      handleCommandErrors((uri?: vscode.Uri) => openProjectFrom(context, blark, tree, uri)),
+    ),
+    vscode.commands.registerCommand(
       "twincatBlark.encodeProject",
       handleCommandErrors((uri?: vscode.Uri) => encodeProject(context, blark, output, uri)),
     ),
@@ -483,6 +693,46 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand(
       "twincatBlark.rebuildMetadata",
       handleCommandErrors((uri?: vscode.Uri) => rebuildMetadata(context, blark, uri)),
+    ),
+    vscode.commands.registerCommand(
+      "twincatBlark.createFolder",
+      handleCommandErrors((uri?: vscode.Uri) => createDecodedFolderCommand(uri)),
+    ),
+    vscode.commands.registerCommand(
+      "twincatBlark.createFunction",
+      handleCommandErrors((uri?: vscode.Uri) => createDecodedProjectItemCommand("function", undefined, uri)),
+    ),
+    vscode.commands.registerCommand(
+      "twincatBlark.createFunctionBlock",
+      handleCommandErrors((uri?: vscode.Uri) => createDecodedProjectItemCommand("functionBlock", "normal", uri)),
+    ),
+    vscode.commands.registerCommand(
+      "twincatBlark.createDerivedFunctionBlock",
+      handleCommandErrors((uri?: vscode.Uri) => createDecodedProjectItemCommand("functionBlock", "derived", uri)),
+    ),
+    vscode.commands.registerCommand(
+      "twincatBlark.createAbstractFunctionBlock",
+      handleCommandErrors((uri?: vscode.Uri) => createDecodedProjectItemCommand("functionBlock", "abstract", uri)),
+    ),
+    vscode.commands.registerCommand(
+      "twincatBlark.createImplementingFunctionBlock",
+      handleCommandErrors((uri?: vscode.Uri) => createDecodedProjectItemCommand("functionBlock", "implements", uri)),
+    ),
+    vscode.commands.registerCommand(
+      "twincatBlark.createDut",
+      handleCommandErrors((uri?: vscode.Uri) => createDecodedProjectItemCommand("dut", undefined, uri)),
+    ),
+    vscode.commands.registerCommand(
+      "twincatBlark.createInterface",
+      handleCommandErrors((uri?: vscode.Uri) => createDecodedProjectItemCommand("interface", undefined, uri)),
+    ),
+    vscode.commands.registerCommand(
+      "twincatBlark.createMethod",
+      handleCommandErrors((uri?: vscode.Uri) => createDecodedMemberCommand("method", uri)),
+    ),
+    vscode.commands.registerCommand(
+      "twincatBlark.createProperty",
+      handleCommandErrors((uri?: vscode.Uri) => createDecodedMemberCommand("property", uri)),
     ),
     vscode.commands.registerCommand("twincatBlark.openNativeReadonly", handleCommandErrors(openNativeReadonly)),
     vscode.commands.registerCommand("twincatBlark.applyReadonlyExplorerGlobs", handleCommandErrors(applyReadonlyExplorerGlobs)),

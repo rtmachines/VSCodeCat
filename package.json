@@ -18,9 +18,20 @@
   ],
   "activationEvents": [
     "onCommand:twincatBlark.decodeProject",
+    "onCommand:twincatBlark.openProjectFrom",
     "onCommand:twincatBlark.encodeProject",
     "onCommand:twincatBlark.encodeCurrentStFile",
     "onCommand:twincatBlark.rebuildMetadata",
+    "onCommand:twincatBlark.createFolder",
+    "onCommand:twincatBlark.createFunction",
+    "onCommand:twincatBlark.createFunctionBlock",
+    "onCommand:twincatBlark.createDerivedFunctionBlock",
+    "onCommand:twincatBlark.createAbstractFunctionBlock",
+    "onCommand:twincatBlark.createImplementingFunctionBlock",
+    "onCommand:twincatBlark.createDut",
+    "onCommand:twincatBlark.createInterface",
+    "onCommand:twincatBlark.createMethod",
+    "onCommand:twincatBlark.createProperty",
     "onCommand:twincatBlark.openNativeReadonly",
     "onCommand:twincatBlark.applyReadonlyExplorerGlobs",
     "onCommand:twincatBlark.openOutput",
@@ -40,6 +51,10 @@
         "title": "TwinCAT/blark: Decode Project to ST"
       },
       {
+        "command": "twincatBlark.openProjectFrom",
+        "title": "TwinCAT/blark: Open TwinCAT 3 Project From..."
+      },
+      {
         "command": "twincatBlark.encodeProject",
         "title": "TwinCAT/blark: Encode ST Back to TwinCAT"
       },
@@ -50,6 +65,56 @@
       {
         "command": "twincatBlark.rebuildMetadata",
         "title": "TwinCAT/blark: Rebuild Metadata Index"
+      },
+      {
+        "command": "twincatBlark.createFolder",
+        "title": "Create Folder",
+        "category": "TwinCAT/blark"
+      },
+      {
+        "command": "twincatBlark.createFunction",
+        "title": "Create Function",
+        "category": "TwinCAT/blark"
+      },
+      {
+        "command": "twincatBlark.createFunctionBlock",
+        "title": "Create Function Block",
+        "category": "TwinCAT/blark"
+      },
+      {
+        "command": "twincatBlark.createDerivedFunctionBlock",
+        "title": "Create Derived Function Block",
+        "category": "TwinCAT/blark"
+      },
+      {
+        "command": "twincatBlark.createAbstractFunctionBlock",
+        "title": "Create Abstract Function Block",
+        "category": "TwinCAT/blark"
+      },
+      {
+        "command": "twincatBlark.createImplementingFunctionBlock",
+        "title": "Create Function Block Implementing Interface...",
+        "category": "TwinCAT/blark"
+      },
+      {
+        "command": "twincatBlark.createDut",
+        "title": "Create DUT",
+        "category": "TwinCAT/blark"
+      },
+      {
+        "command": "twincatBlark.createInterface",
+        "title": "Create Interface",
+        "category": "TwinCAT/blark"
+      },
+      {
+        "command": "twincatBlark.createMethod",
+        "title": "Create Method",
+        "category": "TwinCAT/blark"
+      },
+      {
+        "command": "twincatBlark.createProperty",
+        "title": "Create Property",
+        "category": "TwinCAT/blark"
       },
       {
         "command": "twincatBlark.openNativeReadonly",
@@ -64,8 +129,19 @@
         "title": "TwinCAT/blark: Open Log"
       }
     ],
+    "submenus": [
+      {
+        "id": "twincatBlark.create",
+        "label": "TwinCAT/blark: Create"
+      }
+    ],
     "menus": {
       "explorer/context": [
+        {
+          "command": "twincatBlark.openProjectFrom",
+          "when": "resourceScheme == file || explorerResourceIsFolder",
+          "group": "navigation@79"
+        },
         {
           "command": "twincatBlark.decodeProject",
           "when": "explorerResourceIsFolder || resourceExtname =~ /^\\.(sln|tsproj|plcproj|TcPOU|TcGVL|TcDUT|TcIO|TcTTO)$/i",
@@ -87,9 +163,56 @@
           "group": "navigation@83"
         },
         {
+          "submenu": "twincatBlark.create",
+          "when": "resourceScheme == file || explorerResourceIsFolder",
+          "group": "navigation@84"
+        },
+        {
           "command": "twincatBlark.openNativeReadonly",
           "when": "resourceExtname =~ /^\\.(tmc|xti|TcTLO|TcRMO|TcIPO|TcGTLO|TcCD)$/i",
-          "group": "navigation@84"
+          "group": "navigation@85"
+        }
+      ],
+      "twincatBlark.create": [
+        {
+          "command": "twincatBlark.createFolder",
+          "group": "project@1"
+        },
+        {
+          "command": "twincatBlark.createFunction",
+          "group": "project@2"
+        },
+        {
+          "command": "twincatBlark.createFunctionBlock",
+          "group": "project@3"
+        },
+        {
+          "command": "twincatBlark.createDerivedFunctionBlock",
+          "group": "project@4"
+        },
+        {
+          "command": "twincatBlark.createAbstractFunctionBlock",
+          "group": "project@5"
+        },
+        {
+          "command": "twincatBlark.createImplementingFunctionBlock",
+          "group": "project@6"
+        },
+        {
+          "command": "twincatBlark.createDut",
+          "group": "project@7"
+        },
+        {
+          "command": "twincatBlark.createInterface",
+          "group": "project@8"
+        },
+        {
+          "command": "twincatBlark.createMethod",
+          "group": "member@1"
+        },
+        {
+          "command": "twincatBlark.createProperty",
+          "group": "member@2"
         }
       ],
       "view/item/context": [
