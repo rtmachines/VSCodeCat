@@ -10,3 +10,8 @@
 # These are auto-generated:
 /docs/source/api.rst
 /docs/source/api
+
+# VS Code extension build artifacts
+/node_modules
+/out
+*.vsix

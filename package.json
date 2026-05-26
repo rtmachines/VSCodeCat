@@ -1,0 +1,152 @@
+{
+  "name": "vscode-twincat-blark",
+  "displayName": "TwinCAT blark",
+  "description": "Edit TwinCAT 3 projects in VS Code through blark structured-text round trips.",
+  "version": "0.0.1",
+  "publisher": "local",
+  "license": "BSD-3-Clause",
+  "engines": {
+    "vscode": "^1.92.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onCommand:twincatBlark.decodeProject",
+    "onCommand:twincatBlark.encodeProject",
+    "onCommand:twincatBlark.encodeCurrentStFile",
+    "onCommand:twincatBlark.rebuildMetadata",
+    "onCommand:twincatBlark.openNativeReadonly",
+    "onCommand:twincatBlark.applyReadonlyExplorerGlobs",
+    "onCommand:twincatBlark.openOutput",
+    "workspaceContains:**/.blark/manifest.json"
+  ],
+  "main": "./out/src/extension.js",
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "test": "npm run compile && node --test out/test/*.test.js"
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "twincatBlark.decodeProject",
+        "title": "TwinCAT/blark: Decode Project to ST"
+      },
+      {
+        "command": "twincatBlark.encodeProject",
+        "title": "TwinCAT/blark: Encode ST Back to TwinCAT"
+      },
+      {
+        "command": "twincatBlark.encodeCurrentStFile",
+        "title": "TwinCAT/blark: Encode Current ST Folder"
+      },
+      {
+        "command": "twincatBlark.rebuildMetadata",
+        "title": "TwinCAT/blark: Rebuild Metadata Index"
+      },
+      {
+        "command": "twincatBlark.openNativeReadonly",
+        "title": "TwinCAT/blark: Open Native File Read-only"
+      },
+      {
+        "command": "twincatBlark.applyReadonlyExplorerGlobs",
+        "title": "TwinCAT/blark: Enforce Native Read-only in Explorer"
+      },
+      {
+        "command": "twincatBlark.openOutput",
+        "title": "TwinCAT/blark: Open Log"
+      }
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "twincatBlark.decodeProject",
+          "when": "resourceExtname =~ /^\\.(sln|tsproj|plcproj|TcPOU|TcGVL|TcDUT|TcIO|TcTTO)$/i",
+          "group": "navigation@80"
+        },
+        {
+          "command": "twincatBlark.encodeCurrentStFile",
+          "when": "resourceExtname == .st",
+          "group": "navigation@81"
+        },
+        {
+          "command": "twincatBlark.encodeProject",
+          "when": "explorerResourceIsFolder || resourceFilename == blark.json || resourceFilename == manifest.json",
+          "group": "navigation@82"
+        },
+        {
+          "command": "twincatBlark.rebuildMetadata",
+          "when": "explorerResourceIsFolder || resourceFilename == blark.json || resourceFilename == manifest.json",
+          "group": "navigation@83"
+        },
+        {
+          "command": "twincatBlark.openNativeReadonly",
+          "when": "resourceExtname =~ /^\\.(tmc|xti|TcTLO|TcRMO|TcIPO|TcGTLO|TcCD)$/i",
+          "group": "navigation@84"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "twincatBlark.openNativeReadonly",
+          "when": "view == twincatBlark.nativeReadonly && viewItem == blarkNativeReadonlyFile",
+          "group": "inline"
+        }
+      ]
+    },
+    "views": {
+      "explorer": [
+        {
+          "id": "twincatBlark.nativeReadonly",
+          "name": "TwinCAT Native Read-only"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "TwinCAT blark",
+      "properties": {
+        "twincatBlark.exePath": {
+          "type": "string",
+          "default": "",
+          "description": "Absolute path to compiled blark.exe. If empty, the extension uses resources/bin/win32-x64/blark.exe from the extension bundle."
+        },
+        "twincatBlark.decodeOutputRoot": {
+          "type": "string",
+          "default": "${workspaceFolder}/.twincat-st",
+          "description": "Default parent folder for decoded Structured Text workspaces."
+        },
+        "twincatBlark.encodeStagingRoot": {
+          "type": "string",
+          "default": "${workspaceFolder}/.blark/encoded",
+          "description": "Folder where generated native TwinCAT output is staged before apply."
+        },
+        "twincatBlark.backups.enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Create timestamped backups before applying generated native files to the original TwinCAT project."
+        },
+        "twincatBlark.backups.location": {
+          "type": "string",
+          "default": "${workspaceFolder}/.blark/backups",
+          "description": "Backup root used before generated native files overwrite original TwinCAT files."
+        },
+        "twincatBlark.confirmNativeApply": {
+          "type": "boolean",
+          "default": true,
+          "description": "Require confirmation before applying staged generated native files to the original TwinCAT project."
+        },
+        "twincatBlark.validateOnRebuild": {
+          "type": "boolean",
+          "default": true,
+          "description": "Run blark project encode into a temporary folder after rebuilding metadata to validate the current ST source of truth."
+        }
+      }
+    }
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.30",
+    "@types/vscode": "^1.92.0",
+    "typescript": "^5.4.5"
+  }
+}
