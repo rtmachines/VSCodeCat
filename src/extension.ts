@@ -20,6 +20,16 @@ type SourceKind =
     | "dutEnum"
     | "gvl";
 
+const SOURCE_KINDS: readonly SourceKind[] = [
+    "program",
+    "functionBlock",
+    "function",
+    "interface",
+    "dutStruct",
+    "dutEnum",
+    "gvl",
+];
+
 interface ManifestItem {
     identifier: string;
     object_identifier: string;
@@ -104,6 +114,10 @@ function pathInside(child: string, parent: string): boolean {
 
 function unique<T>(items: T[]): T[] {
     return [...new Set(items)];
+}
+
+function isSourceKind(value: unknown): value is SourceKind {
+    return typeof value === "string" && SOURCE_KINDS.includes(value as SourceKind);
 }
 
 async function exists(filePath: string): Promise<boolean> {
@@ -1467,7 +1481,7 @@ class ExtensionController {
         command("vscodecat.showCurrentObjectSummary", (target?: TreeNode | vscode.Uri) => this.showCurrentObjectSummary(target));
         command("vscodecat.copyObjectName", (node?: TreeNode) => this.copyObjectName(node));
         command("vscodecat.toggleSectionMarkerDecorations", () => this.toggleSectionMarkerDecorations());
-        command("vscodecat.newPlcObject", (kind?: SourceKind) => this.newPlcObject(kind));
+        command("vscodecat.newPlcObject", (kind?: unknown) => this.newPlcObject(kind));
         command("vscodecat.newFunctionBlock", () => this.newPlcObject("functionBlock"));
         command("vscodecat.newProgram", () => this.newPlcObject("program"));
         command("vscodecat.newFunction", () => this.newPlcObject("function"));
@@ -1790,9 +1804,9 @@ class ExtensionController {
         void this.updateMarkerDecorations(vscode.window.activeTextEditor);
     }
 
-    private async newPlcObject(presetKind?: SourceKind): Promise<void> {
+    private async newPlcObject(presetKind?: unknown): Promise<void> {
         const active = await this.manifests.requireActive();
-        const kind = presetKind ?? await this.pickSourceKind();
+        const kind = isSourceKind(presetKind) ? presetKind : await this.pickSourceKind();
         if (!kind) {
             return;
         }
