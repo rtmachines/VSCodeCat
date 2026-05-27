@@ -62,6 +62,11 @@ interface StagedObject {
     createdAt: string;
 }
 
+interface StagedMethod {
+    name: string;
+    code: string;
+}
+
 interface ActiveWorkspace {
     root: string;
     manifestPath: string;
@@ -1488,7 +1493,7 @@ class ExtensionController {
         command("vscodecat.newInterface", () => this.newPlcObject("interface"));
         command("vscodecat.newDut", () => this.newPlcObject("dutStruct"));
         command("vscodecat.newGvl", () => this.newPlcObject("gvl"));
-        command("vscodecat.newMethod", () => this.planned("Method staging is planned after backend support for adding child members."));
+        command("vscodecat.newMethod", () => this.planned("Add METHOD blocks directly in a staged function block .st file. Command-driven method creation is planned."));
         command("vscodecat.newProperty", () => this.planned("Property staging is planned after backend support for adding child members."));
         command("vscodecat.newAction", () => this.planned("Action staging is planned after backend support for adding child members."));
         command("vscodecat.openObject", (node?: TreeNode) => this.openObject(node));
@@ -2504,15 +2509,106 @@ function nativeXmlForStagedObject(staged: StagedObject, stCode: string): string 
                 : staged.kind === "function"
                     ? "END_FUNCTION"
                     : "END_FUNCTION_BLOCK";
-            const [declaration, implementation] = splitPouCode(stCode, endKeyword);
+            const pou = staged.kind === "functionBlock"
+                ? splitStagedFunctionBlock(stCode)
+                : { code: stCode, methods: [] };
+            const [declaration, implementation] = splitPouCode(pou.code, endKeyword);
+            const methods = pou.methods.map(nativeXmlForStagedMethod).join("");
             return plcObjectXml(`<POU Name="${staged.name}" Id="${id}" SpecialFunc="None">
     <Declaration><![CDATA[${safeCdata(declaration)}]]></Declaration>
     <Implementation>
       <ST><![CDATA[${safeCdata(implementation)}]]></ST>
     </Implementation>
-  </POU>`);
+${methods}  </POU>`);
         }
     }
+}
+
+function nativeXmlForStagedMethod(method: StagedMethod): string {
+    const [declaration, implementation] = splitPouCode(method.code, "END_METHOD");
+    return `    <Method Name="${escapeXmlAttribute(method.name)}" Id="{${randomUUID()}}">
+      <Declaration><![CDATA[${safeCdata(declaration)}]]></Declaration>
+      <Implementation>
+        <ST><![CDATA[${safeCdata(implementation)}]]></ST>
+      </Implementation>
+    </Method>
+`;
+}
+
+function splitStagedFunctionBlock(code: string): { code: string; methods: StagedMethod[] } {
+    const lines = code.trimEnd().split(/\r?\n/);
+    const functionBlockLines: string[] = [];
+    const methods: StagedMethod[] = [];
+
+    for (let index = 0; index < lines.length; index += 1) {
+        if (!isMethodStartLine(lines[index])) {
+            functionBlockLines.push(lines[index]);
+            continue;
+        }
+
+        const methodPrefix: string[] = [];
+        while (functionBlockLines.length > 0 && isAttributeLine(functionBlockLines.at(-1)!)) {
+            methodPrefix.unshift(functionBlockLines.pop()!);
+        }
+
+        const endIndex = findEndMethodLine(lines, index);
+        if (endIndex < 0) {
+            throw new UserFacingError(`Staged method is missing END_METHOD near line ${index + 1}.`);
+        }
+
+        const methodLines = [...methodPrefix, ...lines.slice(index, endIndex + 1)];
+        methods.push({
+            name: methodNameFromLines(methodLines, index + 1),
+            code: `${methodLines.join("\n")}\n`,
+        });
+        index = endIndex;
+    }
+
+    return {
+        code: `${functionBlockLines.join("\n").trimEnd()}\n`,
+        methods,
+    };
+}
+
+function isMethodStartLine(line: string): boolean {
+    return /^\s*METHOD\b/i.test(line);
+}
+
+function isAttributeLine(line: string): boolean {
+    return /^\s*\{attribute\b.*\}\s*$/i.test(line);
+}
+
+function findEndMethodLine(lines: string[], startIndex: number): number {
+    for (let index = startIndex + 1; index < lines.length; index += 1) {
+        if (/^\s*END_METHOD\s*;?\s*$/i.test(lines[index])) {
+            return index;
+        }
+    }
+    return -1;
+}
+
+function methodNameFromLines(lines: string[], sourceLine: number): string {
+    const methodLine = lines.find((line) => isMethodStartLine(line));
+    const declaration = methodLine?.replace(/^\s*METHOD\s+/i, "").split(":")[0].trim() ?? "";
+    const modifiers = new Set(["PUBLIC", "PRIVATE", "PROTECTED", "INTERNAL", "FINAL", "ABSTRACT"]);
+    const name = declaration
+        .split(/\s+/)
+        .filter((part) => part && !modifiers.has(part.toUpperCase()))
+        .at(-1);
+
+    if (!name || !/^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$/.test(name)) {
+        throw new UserFacingError(`Could not determine staged method name near line ${sourceLine}.`);
+    }
+
+    return name;
+}
+
+function escapeXmlAttribute(value: string): string {
+    return value
+        .replace(/&/g, "&amp;")
+        .replace(/"/g, "&quot;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
 }
 
 function plcObjectXml(inner: string): string {

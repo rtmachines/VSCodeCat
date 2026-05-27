@@ -2,7 +2,7 @@
   "name": "vscodecat",
   "displayName": "VSCodeCat",
   "description": "Safe VS Code editing workflow for TwinCAT 3 Structured Text projects.",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "publisher": "vscodecat",
   "license": "GPL-3.0-or-later",
   "repository": {
