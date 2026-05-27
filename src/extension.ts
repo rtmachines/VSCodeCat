@@ -7,8 +7,12 @@ import * as path from "path";
 import * as vscode from "vscode";
 
 const MANIFEST_FILENAME = "blark_twincat.json";
+const PROJECT_CONFIG_FILENAME = "blark.json";
+const PROJECT_METADATA_DIRNAME = ".blark";
+const PROJECT_MANIFEST_FILENAME = "manifest.json";
 const STAGED_DIRNAME = ".vscodecat";
 const STAGED_FILENAME = "staged-objects.json";
+const STAGED_MEMBERS_FILENAME = "staged-members.json";
 const NATIVE_SCHEME = "vscodecat-native";
 
 type SourceKind =
@@ -31,12 +35,20 @@ const SOURCE_KINDS: readonly SourceKind[] = [
 ];
 
 interface ManifestItem {
+    id?: string;
     identifier: string;
+    nativeIdentifier?: string;
     object_identifier: string;
+    objectId?: string;
     type: string;
+    kind?: string;
+    part?: string;
     grammar_rule: string;
+    grammarRule?: string;
     source_path: string;
+    nativePath?: string;
     st_path: string;
+    path?: string;
     st_start_line?: number;
     st_end_line?: number;
     st_begin_marker?: string;
@@ -47,10 +59,23 @@ interface ManifestFile {
     format: string;
     version: number;
     native_root: string;
+    nativeRoot?: string;
     st_root: string;
+    source_root?: string;
+    sourceRoot?: string;
     native_entry: string;
+    nativeEntry?: string;
     input_path: string;
     items: ManifestItem[];
+}
+
+interface ProjectConfigFile {
+    format: string;
+    version: number;
+    manifest?: string;
+    sourceRoot?: string;
+    nativeRoot?: string;
+    nativeEntry?: string;
 }
 
 interface StagedObject {
@@ -67,6 +92,26 @@ interface StagedMethod {
     code: string;
 }
 
+interface StagedProperty {
+    name: string;
+    code: string;
+}
+
+interface StagedMember {
+    id: string;
+    kind: "property";
+    parentObjectIdentifier: string;
+    parentSourcePath: string;
+    parentStPath: string;
+    name: string;
+    returnType: string;
+    stPaths: {
+        getDeclaration: string;
+        getImplementation: string;
+    };
+    createdAt: string;
+}
+
 interface ActiveWorkspace {
     root: string;
     manifestPath: string;
@@ -76,6 +121,7 @@ interface ActiveWorkspace {
     nativeEntryPath: string;
     items: ManifestItem[];
     staged: StagedObject[];
+    stagedMembers: StagedMember[];
 }
 
 interface BackendInvocation {
@@ -182,6 +228,16 @@ async function writeJson(filePath: string, value: unknown): Promise<void> {
     await fs.writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`, "utf8");
 }
 
+function mergeDiagnostics(...maps: Array<Map<string, vscode.Diagnostic[]>>): Map<string, vscode.Diagnostic[]> {
+    const merged = new Map<string, vscode.Diagnostic[]>();
+    for (const map of maps) {
+        for (const [filePath, diagnostics] of map) {
+            merged.set(filePath, [...(merged.get(filePath) ?? []), ...diagnostics]);
+        }
+    }
+    return merged;
+}
+
 function splitCommandLine(commandLine: string): string[] {
     const parts: string[] = [];
     let current = "";
@@ -277,6 +333,58 @@ function validateIdentifier(value: string): string | undefined {
         return "Use a valid TwinCAT identifier: letters, numbers, underscores, and no leading digit.";
     }
     return undefined;
+}
+
+function normalizeManifest(manifest: ManifestFile, config?: ProjectConfigFile): ManifestFile {
+    return {
+        ...manifest,
+        native_root: manifest.native_root ?? manifest.nativeRoot ?? config?.nativeRoot ?? "native",
+        st_root: manifest.st_root ?? manifest.source_root ?? manifest.sourceRoot ?? config?.sourceRoot ?? "st",
+        native_entry: manifest.native_entry ?? manifest.nativeEntry ?? config?.nativeEntry ?? "",
+        input_path: manifest.input_path ?? "",
+        items: (manifest.items ?? []).map(normalizeManifestItem),
+    };
+}
+
+function normalizeManifestItem(item: ManifestItem): ManifestItem {
+    const identifier = item.identifier ?? item.nativeIdentifier ?? item.objectId ?? item.id ?? "";
+    const objectIdentifier = item.object_identifier ?? item.objectId ?? identifier.split("/")[0] ?? "";
+    return {
+        ...item,
+        identifier,
+        object_identifier: objectIdentifier,
+        type: item.type ?? item.kind ?? "",
+        grammar_rule: item.grammar_rule ?? item.grammarRule ?? "",
+        source_path: item.source_path ?? item.nativePath ?? "",
+        st_path: item.st_path ?? item.path ?? "",
+    };
+}
+
+function itemKind(item: ManifestItem): string {
+    return (item.kind ?? item.type ?? "").toLowerCase();
+}
+
+function itemPart(item: ManifestItem): string {
+    return (item.part ?? item.identifier.split("/").at(-1) ?? "").toLowerCase();
+}
+
+function isPropertyContainerKind(kind: string): boolean {
+    return kind === "function_block" || kind === "interface";
+}
+
+function isPropertyContainerItem(item: ManifestItem): boolean {
+    return isPropertyContainerKind(itemKind(item)) && itemPart(item) === "declaration";
+}
+
+function propertyContainerForItem(active: ActiveWorkspace, item: ManifestItem): ManifestItem | undefined {
+    if (isPropertyContainerItem(item)) {
+        return item;
+    }
+    return active.items.find((candidate) => candidate.source_path === item.source_path && isPropertyContainerItem(candidate));
+}
+
+function itemCanCreateProperty(active: ActiveWorkspace, item: ManifestItem | undefined): boolean {
+    return item ? Boolean(propertyContainerForItem(active, item)) : false;
 }
 
 function getWordAt(document: vscode.TextDocument, position: vscode.Position): string | undefined {
@@ -480,6 +588,37 @@ class BlarkBackend {
     }
 }
 
+async function runBackendProjectEncode(backend: BlarkBackend, active: ActiveWorkspace, outputPath: string, overwrite = false): Promise<BackendResult> {
+    const inputRoot = active.stagedMembers.length > 0
+        ? await createBackendInputSnapshot(active)
+        : active.root;
+    try {
+        const args = ["project", "encode", inputRoot, outputPath];
+        if (overwrite) {
+            args.push("--overwrite");
+        }
+        return await backend.run(args, inputRoot);
+    } finally {
+        if (inputRoot !== active.root) {
+            await fs.rm(inputRoot, { recursive: true, force: true });
+        }
+    }
+}
+
+async function createBackendInputSnapshot(active: ActiveWorkspace): Promise<string> {
+    const snapshotRoot = await fs.mkdtemp(path.join(os.tmpdir(), "vscodecat-backend-input-"));
+    const excluded = new Set(
+        active.stagedMembers
+            .flatMap(stagedMemberPaths)
+            .map((memberPath) => path.resolve(fromManifestPath(active.root, memberPath)).toLowerCase()),
+    );
+    await fs.cp(active.root, snapshotRoot, {
+        recursive: true,
+        filter: (source) => !excluded.has(path.resolve(source).toLowerCase()),
+    });
+    return snapshotRoot;
+}
+
 class ManifestService {
     private readonly changeEmitter = new vscode.EventEmitter<ActiveWorkspace | undefined>();
     public readonly onDidChange = this.changeEmitter.event;
@@ -536,9 +675,9 @@ class ManifestService {
     }
 
     public async setActiveFromFolder(folderPath: string): Promise<ActiveWorkspace> {
-        const manifestPath = path.join(folderPath, MANIFEST_FILENAME);
-        if (!(await exists(manifestPath))) {
-            throw new UserFacingError(`No ${MANIFEST_FILENAME} found in ${folderPath}.`);
+        const manifestPath = await this.findManifestInFolder(folderPath);
+        if (!manifestPath) {
+            throw new UserFacingError(`No ${MANIFEST_FILENAME} or ${PROJECT_CONFIG_FILENAME} found in ${folderPath}.`);
         }
         return this.setActiveFromManifest(manifestPath);
     }
@@ -573,6 +712,15 @@ class ManifestService {
         return active.staged.find((item) => path.resolve(fromManifestPath(active.root, item.stagedPath)) === resolved);
     }
 
+    public stagedMemberForFile(filePath: string): StagedMember | undefined {
+        const active = this.active;
+        if (!active) {
+            return undefined;
+        }
+        const resolved = path.resolve(filePath);
+        return active.stagedMembers.find((member) => stagedMemberPaths(member).some((memberPath) => path.resolve(fromManifestPath(active.root, memberPath)) === resolved));
+    }
+
     public itemsForStFile(filePath: string): ManifestItem[] {
         const active = this.active;
         if (!active) {
@@ -589,14 +737,23 @@ class ManifestService {
         this.changeEmitter.fire(active);
     }
 
+    public async saveStagedMembers(active: ActiveWorkspace, stagedMembers: StagedMember[]): Promise<void> {
+        const stagedPath = path.join(active.root, STAGED_DIRNAME, STAGED_MEMBERS_FILENAME);
+        await writeJson(stagedPath, stagedMembers);
+        active.stagedMembers = stagedMembers;
+        this.changeEmitter.fire(active);
+    }
+
     private async discoverManifestPaths(preferredManifestPath?: string): Promise<string[]> {
         const paths: string[] = [];
         if (preferredManifestPath && await exists(preferredManifestPath)) {
             paths.push(path.resolve(preferredManifestPath));
         }
 
-        const found = await vscode.workspace.findFiles(`**/${MANIFEST_FILENAME}`, "**/{.git,node_modules,out,build,dist}/**", 50);
-        paths.push(...found.map((uri) => path.resolve(uri.fsPath)));
+        const foundLegacy = await vscode.workspace.findFiles(`**/${MANIFEST_FILENAME}`, "**/{.git,node_modules,out,build,dist}/**", 50);
+        const foundProjects = await vscode.workspace.findFiles(`**/${PROJECT_CONFIG_FILENAME}`, "**/{.git,node_modules,out,build,dist}/**", 50);
+        paths.push(...foundLegacy.map((uri) => path.resolve(uri.fsPath)));
+        paths.push(...foundProjects.map((uri) => path.resolve(uri.fsPath)));
 
         const editorPath = vscode.window.activeTextEditor?.document.uri.fsPath;
         if (editorPath) {
@@ -616,8 +773,8 @@ class ManifestService {
     private async findManifestUpward(startPath: string): Promise<string | undefined> {
         let current = path.dirname(startPath);
         while (true) {
-            const candidate = path.join(current, MANIFEST_FILENAME);
-            if (await exists(candidate)) {
+            const candidate = await this.findManifestInFolder(current);
+            if (candidate) {
                 return candidate;
             }
             const parent = path.dirname(current);
@@ -628,23 +785,61 @@ class ManifestService {
         }
     }
 
+    private async findManifestInFolder(folderPath: string): Promise<string | undefined> {
+        const candidates = [
+            path.join(folderPath, MANIFEST_FILENAME),
+            path.join(folderPath, PROJECT_CONFIG_FILENAME),
+            path.join(folderPath, PROJECT_METADATA_DIRNAME, PROJECT_MANIFEST_FILENAME),
+        ];
+        for (const candidate of candidates) {
+            if (await exists(candidate)) {
+                return candidate;
+            }
+        }
+        return undefined;
+    }
+
     private async loadWorkspace(manifestPath: string): Promise<ActiveWorkspace> {
-        const root = path.dirname(manifestPath);
-        const manifest = await readJson<ManifestFile>(manifestPath);
+        const resolved = await this.resolveWorkspaceManifest(manifestPath);
+        const root = resolved.root;
+        const manifest = normalizeManifest(await readJson<ManifestFile>(resolved.manifestPath), resolved.config);
         const nativeRoot = fromManifestPath(root, manifest.native_root);
         const stRoot = fromManifestPath(root, manifest.st_root);
         const nativeEntryPath = fromManifestPath(nativeRoot, manifest.native_entry);
         const staged = await this.loadStaged(root);
+        const stagedMembers = await this.loadStagedMembers(root);
         return {
             root,
-            manifestPath,
+            manifestPath: resolved.manifestPath,
             manifest,
             nativeRoot,
             stRoot,
             nativeEntryPath,
             items: manifest.items ?? [],
             staged,
+            stagedMembers,
         };
+    }
+
+    private async resolveWorkspaceManifest(manifestPath: string): Promise<{ root: string; manifestPath: string; config?: ProjectConfigFile }> {
+        const resolved = path.resolve(manifestPath);
+        const filename = path.basename(resolved).toLowerCase();
+        const parentName = path.basename(path.dirname(resolved)).toLowerCase();
+        if (filename === PROJECT_CONFIG_FILENAME.toLowerCase()) {
+            const root = path.dirname(resolved);
+            const config = await readJson<ProjectConfigFile>(resolved);
+            const projectManifest = path.resolve(root, ...(config.manifest ?? `${PROJECT_METADATA_DIRNAME}/${PROJECT_MANIFEST_FILENAME}`).split("/"));
+            if (!(await exists(projectManifest))) {
+                throw new UserFacingError(`No project manifest found at ${projectManifest}.`);
+            }
+            return { root, manifestPath: projectManifest, config };
+        }
+
+        if (filename === PROJECT_MANIFEST_FILENAME.toLowerCase() && parentName === PROJECT_METADATA_DIRNAME.toLowerCase()) {
+            return { root: path.dirname(path.dirname(resolved)), manifestPath: resolved };
+        }
+
+        return { root: path.dirname(resolved), manifestPath: resolved };
     }
 
     private async loadStaged(root: string): Promise<StagedObject[]> {
@@ -656,6 +851,15 @@ class ManifestService {
         return Array.isArray(content) ? content : content.objects ?? [];
     }
 
+    private async loadStagedMembers(root: string): Promise<StagedMember[]> {
+        const stagedPath = path.join(root, STAGED_DIRNAME, STAGED_MEMBERS_FILENAME);
+        if (!(await exists(stagedPath))) {
+            return [];
+        }
+        const content = await readJson<{ members?: StagedMember[] } | StagedMember[]>(stagedPath);
+        return Array.isArray(content) ? content : content.members ?? [];
+    }
+
     private async updateContexts(): Promise<void> {
         await vscode.commands.executeCommand("setContext", "vscodecat.hasDecodedWorkspace", Boolean(this.active));
         await this.updateEditorContexts();
@@ -664,9 +868,14 @@ class ManifestService {
     public async updateEditorContexts(): Promise<void> {
         const editor = vscode.window.activeTextEditor;
         const isSt = editor?.document.languageId === "twincat-st" || editor?.document.uri.fsPath.toLowerCase().endsWith(".st");
-        const mapped = editor ? Boolean(this.activeItemForFile(editor.document.uri.fsPath) || this.stagedObjectForFile(editor.document.uri.fsPath)) : false;
+        const activeItem = editor ? this.activeItemForFile(editor.document.uri.fsPath) : undefined;
+        const staged = editor ? this.stagedObjectForFile(editor.document.uri.fsPath) : undefined;
+        const stagedMember = editor ? this.stagedMemberForFile(editor.document.uri.fsPath) : undefined;
+        const mapped = editor ? Boolean(activeItem || staged || stagedMember) : false;
         await vscode.commands.executeCommand("setContext", "vscodecat.activeStEditor", Boolean(isSt));
         await vscode.commands.executeCommand("setContext", "vscodecat.activeMappedSt", mapped);
+        await vscode.commands.executeCommand("setContext", "vscodecat.activeStagedFunctionBlock", staged?.kind === "functionBlock");
+        await vscode.commands.executeCommand("setContext", "vscodecat.activePropertyContainer", Boolean(this.active && itemCanCreateProperty(this.active, activeItem)));
     }
 }
 
@@ -750,7 +959,8 @@ class ObjectTreeProvider extends RefreshableTreeProvider {
                 level = childMap;
             }
 
-            const leaf = new TreeNode(leafLabel, vscode.TreeItemCollapsibleState.None, "mappedObject", item, undefined, undefined, fromManifestPath(active.root, item.st_path));
+            const nodeKind = itemCanCreateProperty(active, item) ? "mappedPropertyContainerObject" : "mappedObject";
+            const leaf = new TreeNode(leafLabel, vscode.TreeItemCollapsibleState.None, nodeKind, item, undefined, undefined, fromManifestPath(active.root, item.st_path));
             leaf.description = item.type;
             leaf.tooltip = `${item.identifier}\n${item.st_path}`;
             leaf.iconPath = new vscode.ThemeIcon("symbol-class");
@@ -766,7 +976,8 @@ class ObjectTreeProvider extends RefreshableTreeProvider {
             const stagedRoot = new TreeNode("Staged Objects", vscode.TreeItemCollapsibleState.Expanded, "folder");
             stagedRoot.iconPath = new vscode.ThemeIcon("add");
             for (const staged of active.staged) {
-                const leaf = new TreeNode(staged.name, vscode.TreeItemCollapsibleState.None, "stagedObject", undefined, staged, undefined, fromManifestPath(active.root, staged.stagedPath));
+                const nodeKind = staged.kind === "functionBlock" ? "stagedFunctionBlockObject" : "stagedObject";
+                const leaf = new TreeNode(staged.name, vscode.TreeItemCollapsibleState.None, nodeKind, undefined, staged, undefined, fromManifestPath(active.root, staged.stagedPath));
                 leaf.description = titleForKind(staged.kind);
                 leaf.tooltip = `${staged.sourcePath}\n${staged.stagedPath}`;
                 leaf.iconPath = new vscode.ThemeIcon("new-file");
@@ -803,7 +1014,8 @@ class MappingTreeProvider extends RefreshableTreeProvider {
         });
 
         for (const staged of active.staged) {
-            const node = new TreeNode(staged.name, vscode.TreeItemCollapsibleState.None, "stagedObject", undefined, staged);
+            const nodeKind = staged.kind === "functionBlock" ? "stagedFunctionBlockObject" : "stagedObject";
+            const node = new TreeNode(staged.name, vscode.TreeItemCollapsibleState.None, nodeKind, undefined, staged);
             node.description = `staged -> ${staged.sourcePath}`;
             node.tooltip = `Staged ST: ${staged.stagedPath}\nNative output: ${staged.sourcePath}`;
             node.iconPath = new vscode.ThemeIcon("add");
@@ -935,6 +1147,11 @@ class DiagnosticsManager {
                 await this.validateMarkers(item, stPath, add);
             }
         }
+        for (const member of active.stagedMembers) {
+            for (const memberPath of stagedMemberPaths(member)) {
+                declaredStPaths.add(path.resolve(fromManifestPath(active.root, memberPath)));
+            }
+        }
 
         if (await exists(active.stRoot)) {
             const actualStFiles = (await listFiles(active.stRoot)).filter((file) => file.toLowerCase().endsWith(".st"));
@@ -955,9 +1172,12 @@ class DiagnosticsManager {
         }
         const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), "vscodecat-validate-"));
         try {
-            const result = await this.backend.run(["project", "encode", active.root, path.join(tempRoot, "native")], active.root);
+            const result = await runBackendProjectEncode(this.backend, active, path.join(tempRoot, "native"));
             if (result.code === 0) {
-                const stagedDiagnostics = await this.validateStagedObjects(active);
+                const stagedDiagnostics = mergeDiagnostics(
+                    await this.validateStagedObjects(active),
+                    await this.validateStagedMembers(active),
+                );
                 if (stagedDiagnostics.size > 0) {
                     this.publish(stagedDiagnostics);
                     return false;
@@ -1017,6 +1237,46 @@ class DiagnosticsManager {
             const result = await this.backend.run(["parse", stagedPath], path.dirname(stagedPath));
             if (result.code !== 0) {
                 diagnostics.set(path.resolve(stagedPath), [this.diagnosticFromMessage(result.stderr || result.stdout || "Parse failed.")]);
+            }
+        }
+        return diagnostics;
+    }
+
+    private async validateStagedMembers(active: ActiveWorkspace): Promise<Map<string, vscode.Diagnostic[]>> {
+        const diagnostics = new Map<string, vscode.Diagnostic[]>();
+        for (const member of active.stagedMembers) {
+            let memberHasMissingFile = false;
+            const parentSourcePath = fromManifestPath(active.nativeRoot, member.parentSourcePath);
+            if (!(await exists(parentSourcePath))) {
+                diagnostics.set(path.resolve(parentSourcePath), [this.diagnosticFromMessage(`Staged property parent native source is missing: ${member.parentSourcePath}`)]);
+                memberHasMissingFile = true;
+            }
+            for (const memberPath of stagedMemberPaths(member)) {
+                const filePath = fromManifestPath(active.root, memberPath);
+                if (!(await exists(filePath))) {
+                    diagnostics.set(path.resolve(filePath), [this.diagnosticFromMessage(`Staged property file is missing: ${memberPath}`)]);
+                    memberHasMissingFile = true;
+                }
+            }
+            if (memberHasMissingFile) {
+                continue;
+            }
+
+            const declarationPath = fromManifestPath(active.root, member.stPaths.getDeclaration);
+            const implementationPath = fromManifestPath(active.root, member.stPaths.getImplementation);
+            const tempPath = path.join(os.tmpdir(), `vscodecat-property-${randomUUID()}.st`);
+            try {
+                const [declaration, implementation] = await Promise.all([
+                    fs.readFile(declarationPath, "utf8"),
+                    fs.readFile(implementationPath, "utf8"),
+                ]);
+                await fs.writeFile(tempPath, decodedPropertyValidationCode(declaration, implementation), "utf8");
+                const result = await this.backend.run(["parse", tempPath], path.dirname(tempPath));
+                if (result.code !== 0) {
+                    diagnostics.set(path.resolve(declarationPath), [this.diagnosticFromMessage(result.stderr || result.stdout || "Parse failed.")]);
+                }
+            } finally {
+                await fs.rm(tempPath, { force: true });
             }
         }
         return diagnostics;
@@ -1494,7 +1754,7 @@ class ExtensionController {
         command("vscodecat.newDut", () => this.newPlcObject("dutStruct"));
         command("vscodecat.newGvl", () => this.newPlcObject("gvl"));
         command("vscodecat.newMethod", () => this.planned("Add METHOD blocks directly in a staged function block .st file. Command-driven method creation is planned."));
-        command("vscodecat.newProperty", () => this.planned("Property staging is planned after backend support for adding child members."));
+        command("vscodecat.newProperty", (target?: TreeNode | vscode.Uri) => this.newProperty(target));
         command("vscodecat.newAction", () => this.planned("Action staging is planned after backend support for adding child members."));
         command("vscodecat.openObject", (node?: TreeNode) => this.openObject(node));
         command("vscodecat.revealObjectInExplorer", (node?: TreeNode) => this.revealObjectInExplorer(node));
@@ -1668,25 +1928,26 @@ class ExtensionController {
             return;
         }
 
-        const args = ["project", "encode", active.root, outputPath];
+        let overwrite = false;
         if (await isNonEmptyDirectory(outputPath)) {
-            const overwrite = await vscode.window.showWarningMessage(
+            const overwriteChoice = await vscode.window.showWarningMessage(
                 `${outputPath} already exists and is not empty.`,
                 { modal: true },
                 "Replace output folder",
             );
-            if (overwrite !== "Replace output folder") {
+            if (overwriteChoice !== "Replace output folder") {
                 return;
             }
-            args.push("--overwrite");
+            overwrite = true;
         }
 
         await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: "Encoding TwinCAT native output", cancellable: false }, async () => {
-            const result = await this.backend.run(args, active.root);
+            const result = await runBackendProjectEncode(this.backend, active, outputPath, overwrite);
             if (result.code !== 0) {
                 throw new UserFacingError(result.stderr || result.stdout || "Encode failed.");
             }
             await this.materializeStagedObjects(active, outputPath);
+            await this.materializeStagedMembers(active, outputPath);
         });
 
         this.encodedOutputPath = outputPath;
@@ -1847,6 +2108,163 @@ class ExtensionController {
         await this.manifests.saveStaged(active, [...active.staged, staged]);
         await vscode.window.showTextDocument(vscode.Uri.file(stagedAbs));
         vscode.window.showInformationMessage(`${titleForKind(kind)} ${name} staged.`);
+    }
+
+    private async newProperty(target?: TreeNode | vscode.Uri): Promise<void> {
+        const active = await this.manifests.requireActive();
+        const staged = this.stagedObjectFromTarget(target);
+        if (staged) {
+            await this.newStagedProperty(active, staged);
+            return;
+        }
+
+        const item = this.manifestItemFromTarget(target) ?? this.currentManifestItem();
+        if (item) {
+            await this.newDecodedProperty(active, item);
+            return;
+        }
+
+        throw new UserFacingError("Open or select a Function Block or Interface before adding a property.");
+    }
+
+    private async newStagedProperty(active: ActiveWorkspace, staged: StagedObject): Promise<void> {
+        if (!staged) {
+            throw new UserFacingError("Open or select a staged Function Block before adding a property.");
+        }
+        if (staged.kind !== "functionBlock") {
+            throw new UserFacingError("Properties can only be staged inside a Function Block.");
+        }
+
+        const stagedAbs = fromManifestPath(active.root, staged.stagedPath);
+        const document = await vscode.workspace.openTextDocument(vscode.Uri.file(stagedAbs));
+        const existingMembers = stagedFunctionBlockMemberNames(document.getText());
+        const name = await vscode.window.showInputBox({
+            title: `New Property in ${staged.name}`,
+            prompt: "Property name",
+            validateInput: (value) => {
+                const identifierError = validateIdentifier(value);
+                if (identifierError) {
+                    return identifierError;
+                }
+                return existingMembers.has(value.toLowerCase())
+                    ? `${value} already exists in ${staged.name}.`
+                    : undefined;
+            },
+        });
+        if (!name) {
+            return;
+        }
+
+        const returnType = await vscode.window.showInputBox({
+            title: `New Property ${name}`,
+            prompt: "Property return type",
+            value: "BOOL",
+            validateInput: (value) => value.trim() ? undefined : "Property return type is required.",
+        });
+        if (!returnType) {
+            return;
+        }
+
+        await insertBlockBeforeEnd(document, "END_FUNCTION_BLOCK", propertyTemplate(name, returnType.trim()));
+        await vscode.window.showTextDocument(document, { preview: false });
+        vscode.window.showInformationMessage(`Property ${name} staged in ${staged.name}.`);
+    }
+
+    private async newDecodedProperty(active: ActiveWorkspace, item: ManifestItem): Promise<void> {
+        const parent = propertyContainerForItem(active, item);
+        if (!parent) {
+            throw new UserFacingError("Properties can only be created under a decoded Function Block or Interface.");
+        }
+
+        const parentDir = posixPath(path.posix.dirname(posixPath(parent.st_path)));
+        if (path.posix.basename(parent.st_path).toLowerCase() !== "declaration.st") {
+            throw new UserFacingError("This decoded object does not use the folder-per-object layout required for property staging.");
+        }
+
+        const existingMembers = decodedPropertyNames(active, parent);
+        const name = await vscode.window.showInputBox({
+            title: `New Property in ${parent.object_identifier}`,
+            prompt: "Property name",
+            validateInput: (value) => {
+                const identifierError = validateIdentifier(value);
+                if (identifierError) {
+                    return identifierError;
+                }
+                return existingMembers.has(value.toLowerCase())
+                    ? `${value} already exists in ${parent.object_identifier}.`
+                    : undefined;
+            },
+        });
+        if (!name) {
+            return;
+        }
+
+        const returnType = await vscode.window.showInputBox({
+            title: `New Property ${name}`,
+            prompt: "Property return type",
+            value: "BOOL",
+            validateInput: (value) => value.trim() ? undefined : "Property return type is required.",
+        });
+        if (!returnType) {
+            return;
+        }
+
+        const propertyRoot = toManifestPath(path.posix.join(parentDir, "properties", name));
+        const getDeclaration = toManifestPath(path.posix.join(propertyRoot, "get", "declaration.st"));
+        const getImplementation = toManifestPath(path.posix.join(propertyRoot, "get", "implementation.st"));
+        const files = [
+            [getDeclaration, decodedPropertyDeclarationTemplate(name, returnType.trim())],
+            [getImplementation, decodedPropertyGetterImplementationTemplate(name, returnType.trim())],
+        ] as const;
+        for (const [manifestPathValue] of files) {
+            if (await exists(fromManifestPath(active.root, manifestPathValue))) {
+                throw new UserFacingError(`${manifestPathValue} already exists.`);
+            }
+        }
+
+        for (const [manifestPathValue, content] of files) {
+            const filePath = fromManifestPath(active.root, manifestPathValue);
+            await fs.mkdir(path.dirname(filePath), { recursive: true });
+            await fs.writeFile(filePath, content, "utf8");
+        }
+
+        const member: StagedMember = {
+            id: randomUUID(),
+            kind: "property",
+            parentObjectIdentifier: parent.object_identifier,
+            parentSourcePath: parent.source_path,
+            parentStPath: parentDir,
+            name,
+            returnType: returnType.trim(),
+            stPaths: {
+                getDeclaration,
+                getImplementation,
+            },
+            createdAt: new Date().toISOString(),
+        };
+        await this.manifests.saveStagedMembers(active, [...active.stagedMembers, member]);
+        await vscode.window.showTextDocument(vscode.Uri.file(fromManifestPath(active.root, getDeclaration)), { preview: false });
+        vscode.window.showInformationMessage(`Property ${name} staged in ${parent.object_identifier}.`);
+    }
+
+    private stagedObjectFromTarget(target?: TreeNode | vscode.Uri): StagedObject | undefined {
+        if (target instanceof TreeNode) {
+            return target.stagedObject;
+        }
+        if (target instanceof vscode.Uri) {
+            return this.manifests.stagedObjectForFile(target.fsPath);
+        }
+        return this.currentStagedObject();
+    }
+
+    private manifestItemFromTarget(target?: TreeNode | vscode.Uri): ManifestItem | undefined {
+        if (target instanceof TreeNode) {
+            return target.manifestItem;
+        }
+        if (target instanceof vscode.Uri) {
+            return this.manifests.activeItemForFile(target.fsPath);
+        }
+        return undefined;
     }
 
     private async pickSourceKind(): Promise<SourceKind | undefined> {
@@ -2085,11 +2503,12 @@ class ExtensionController {
 
         const previewRoot = await this.createPreviewRoot();
         await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: "Encoding native preview", cancellable: false }, async () => {
-            const result = await this.backend.run(["project", "encode", active.root, previewRoot], active.root);
+            const result = await runBackendProjectEncode(this.backend, active, previewRoot);
             if (result.code !== 0) {
                 throw new UserFacingError(result.stderr || result.stdout || "Preview encode failed.");
             }
             await this.materializeStagedObjects(active, previewRoot);
+            await this.materializeStagedMembers(active, previewRoot);
         });
 
         this.previewPath = previewRoot;
@@ -2264,6 +2683,7 @@ class ExtensionController {
                     nativeEntry: active.manifest.native_entry,
                     itemCount: active.items.length,
                     stagedCount: active.staged.length,
+                    stagedMemberCount: active.stagedMembers.length,
                 }
                 : undefined,
             diagnostics: this.diagnostics.snapshot().map(([uri, diagnostics]) => ({
@@ -2308,6 +2728,35 @@ class ExtensionController {
             await fs.mkdir(path.dirname(sourceAbs), { recursive: true });
             await fs.writeFile(sourceAbs, nativeXmlForStagedObject(staged, stCode), "utf8");
             await this.addCompileItem(outputRoot, sourceAbs, staged);
+        }
+    }
+
+    private async materializeStagedMembers(active: ActiveWorkspace, outputRoot: string): Promise<void> {
+        for (const member of active.stagedMembers) {
+            if (member.kind !== "property") {
+                continue;
+            }
+            const sourceAbs = path.join(outputRoot, ...member.parentSourcePath.split("/"));
+            if (!(await exists(sourceAbs))) {
+                throw new UserFacingError(`Cannot materialize staged property because output source is missing: ${member.parentSourcePath}`);
+            }
+
+            const declarationPath = fromManifestPath(active.root, member.stPaths.getDeclaration);
+            const implementationPath = fromManifestPath(active.root, member.stPaths.getImplementation);
+            if (!(await exists(declarationPath))) {
+                throw new UserFacingError(`Staged property declaration is missing: ${member.stPaths.getDeclaration}`);
+            }
+            if (!(await exists(implementationPath))) {
+                throw new UserFacingError(`Staged property implementation is missing: ${member.stPaths.getImplementation}`);
+            }
+
+            const declaration = await fs.readFile(declarationPath, "utf8");
+            const implementation = await fs.readFile(implementationPath, "utf8");
+            const xml = await fs.readFile(sourceAbs, "utf8");
+            if (new RegExp(`<Property\\s+Name="${escapeRegExp(escapeXmlAttribute(member.name))}"\\b`, "i").test(xml)) {
+                throw new UserFacingError(`Cannot materialize staged property because ${member.name} already exists in ${member.parentSourcePath}.`);
+            }
+            await fs.writeFile(sourceAbs, insertNativeMemberXml(xml, member.parentSourcePath, nativeXmlForDecodedProperty(member, declaration, implementation)), "utf8");
         }
     }
 
@@ -2382,7 +2831,7 @@ class ExtensionController {
         if (document.languageId !== "twincat-st" && !document.uri.fsPath.toLowerCase().endsWith(".st")) {
             return;
         }
-        if (this.manifests.activeItemForFile(document.uri.fsPath) || this.manifests.stagedObjectForFile(document.uri.fsPath)) {
+        if (this.manifests.activeItemForFile(document.uri.fsPath) || this.manifests.stagedObjectForFile(document.uri.fsPath) || this.manifests.stagedMemberForFile(document.uri.fsPath)) {
             await this.diagnostics.validateCurrent(document);
         }
     }
@@ -2483,6 +2932,107 @@ END_VAR
     }
 }
 
+function propertyTemplate(name: string, returnType: string): string {
+    const defaultValue = defaultPropertyValue(returnType);
+    const implementation = defaultValue
+        ? `${name} := ${defaultValue};`
+        : `// TODO: assign ${name} before using this property.`;
+    return `PROPERTY ${name} : ${returnType}
+VAR
+END_VAR
+
+${implementation}
+END_PROPERTY
+`;
+}
+
+function decodedPropertyDeclarationTemplate(name: string, returnType: string): string {
+    return `PROPERTY ${name} : ${returnType}
+VAR
+END_VAR
+END_PROPERTY
+`;
+}
+
+function decodedPropertyGetterImplementationTemplate(name: string, returnType: string): string {
+    const defaultValue = defaultPropertyValue(returnType);
+    return defaultValue
+        ? `${name} := ${defaultValue};\n`
+        : `// TODO: assign ${name} before using this property.\n`;
+}
+
+function defaultPropertyValue(returnType: string): string | undefined {
+    const normalized = returnType.trim().replace(/\(.+\)$/, "").toUpperCase();
+    if (normalized === "BOOL") {
+        return "FALSE";
+    }
+    if (normalized === "STRING" || normalized === "WSTRING") {
+        return "''";
+    }
+    if (new Set(["BYTE", "WORD", "DWORD", "LWORD", "SINT", "USINT", "INT", "UINT", "DINT", "UDINT", "LINT", "ULINT", "REAL", "LREAL"]).has(normalized)) {
+        return "0";
+    }
+    return undefined;
+}
+
+function decodedPropertyNames(active: ActiveWorkspace, parent: ManifestItem): Set<string> {
+    const names = new Set<string>();
+    const propertyPrefix = `${posixPath(path.posix.dirname(posixPath(parent.st_path))).toLowerCase()}/properties/`;
+    for (const item of active.items) {
+        const stPath = posixPath(item.st_path).toLowerCase();
+        if (!stPath.startsWith(propertyPrefix)) {
+            continue;
+        }
+        const propertyName = posixPath(item.st_path).slice(propertyPrefix.length).split("/")[0];
+        if (propertyName) {
+            names.add(propertyName.toLowerCase());
+        }
+    }
+    for (const member of active.stagedMembers) {
+        if (member.parentSourcePath === parent.source_path) {
+            names.add(member.name.toLowerCase());
+        }
+    }
+    return names;
+}
+
+function stagedMemberPaths(member: StagedMember): string[] {
+    return [
+        member.stPaths.getDeclaration,
+        member.stPaths.getImplementation,
+    ];
+}
+
+async function insertBlockBeforeEnd(document: vscode.TextDocument, endKeyword: string, block: string): Promise<void> {
+    const lines = document.getText().split(/\r?\n/);
+    const endLine = findLastEndLine(lines, endKeyword);
+    if (endLine < 0) {
+        throw new UserFacingError(`Cannot add the property because ${endKeyword} was not found.`);
+    }
+
+    const previousLine = lines[endLine - 1]?.trim();
+    const leadingBlank = previousLine ? "\n" : "";
+    const edit = new vscode.WorkspaceEdit();
+    edit.insert(document.uri, new vscode.Position(endLine, 0), `${leadingBlank}${block.trimEnd()}\n\n`);
+    if (!(await vscode.workspace.applyEdit(edit))) {
+        throw new UserFacingError("Could not update the staged Function Block.");
+    }
+    await document.save();
+}
+
+function findLastEndLine(lines: string[], endKeyword: string): number {
+    for (let index = lines.length - 1; index >= 0; index -= 1) {
+        if (isEndKeywordLine(lines[index], endKeyword)) {
+            return index;
+        }
+    }
+    return -1;
+}
+
+function isEndKeywordLine(line: string, endKeyword: string): boolean {
+    return new RegExp(`^\\s*${endKeyword}\\s*;?\\s*$`, "i").test(line);
+}
+
 function nativeXmlForStagedObject(staged: StagedObject, stCode: string): string {
     const id = `{${randomUUID()}}`;
     switch (staged.kind) {
@@ -2511,15 +3061,16 @@ function nativeXmlForStagedObject(staged: StagedObject, stCode: string): string 
                     : "END_FUNCTION_BLOCK";
             const pou = staged.kind === "functionBlock"
                 ? splitStagedFunctionBlock(stCode)
-                : { code: stCode, methods: [] };
+                : { code: stCode, methods: [], properties: [] };
             const [declaration, implementation] = splitPouCode(pou.code, endKeyword);
             const methods = pou.methods.map(nativeXmlForStagedMethod).join("");
+            const properties = pou.properties.map(nativeXmlForStagedProperty).join("");
             return plcObjectXml(`<POU Name="${staged.name}" Id="${id}" SpecialFunc="None">
     <Declaration><![CDATA[${safeCdata(declaration)}]]></Declaration>
     <Implementation>
       <ST><![CDATA[${safeCdata(implementation)}]]></ST>
     </Implementation>
-${methods}  </POU>`);
+${methods}${properties}  </POU>`);
         }
     }
 }
@@ -2535,31 +3086,112 @@ function nativeXmlForStagedMethod(method: StagedMethod): string {
 `;
 }
 
-function splitStagedFunctionBlock(code: string): { code: string; methods: StagedMethod[] } {
+function nativeXmlForStagedProperty(property: StagedProperty): string {
+    const [declaration, implementation] = splitPouCode(property.code, "END_PROPERTY");
+    return `    <Property Name="${escapeXmlAttribute(property.name)}" Id="{${randomUUID()}}">
+      <Declaration><![CDATA[${safeCdata(declaration)}]]></Declaration>
+      <Get Name="Get" Id="{${randomUUID()}}">
+        <Declaration><![CDATA[]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[${safeCdata(implementation)}]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+`;
+}
+
+function nativeXmlForDecodedProperty(member: StagedMember, declarationCode: string, implementationCode: string): string {
+    const declaration = splitDecodedPropertyDeclaration(declarationCode);
+    return `    <Property Name="${escapeXmlAttribute(member.name)}" Id="{${randomUUID()}}">
+      <Declaration><![CDATA[${safeCdata(declaration.propertyDeclaration)}]]></Declaration>
+      <Get Name="Get" Id="{${randomUUID()}}">
+        <Declaration><![CDATA[${safeCdata(declaration.accessorDeclaration)}]]></Declaration>
+        <Implementation>
+          <ST><![CDATA[${safeCdata(implementationCode.trimEnd())}]]></ST>
+        </Implementation>
+      </Get>
+    </Property>
+`;
+}
+
+function splitDecodedPropertyDeclaration(code: string): { propertyDeclaration: string; accessorDeclaration: string } {
+    const lines = code.trimEnd().split(/\r?\n/);
+    if (isEndKeywordLine(lines.at(-1) ?? "", "END_PROPERTY")) {
+        lines.pop();
+    }
+
+    const varIndex = lines.findIndex((line) => /^\s*VAR(?:\b|_)/i.test(line));
+    if (varIndex < 0) {
+        return {
+            propertyDeclaration: `${lines.join("\n").trimEnd()}\n`,
+            accessorDeclaration: "",
+        };
+    }
+
+    return {
+        propertyDeclaration: `${lines.slice(0, varIndex).join("\n").trimEnd()}\n`,
+        accessorDeclaration: `${lines.slice(varIndex).join("\n").trimEnd()}\n`,
+    };
+}
+
+function decodedPropertyValidationCode(declarationCode: string, implementationCode: string): string {
+    const lines = declarationCode.trimEnd().split(/\r?\n/);
+    if (isEndKeywordLine(lines.at(-1) ?? "", "END_PROPERTY")) {
+        lines.pop();
+    }
+    return `${lines.join("\n").trimEnd()}\n\n${implementationCode.trimEnd()}\nEND_PROPERTY\n`;
+}
+
+function insertNativeMemberXml(xml: string, sourcePath: string, memberXml: string): string {
+    const closeTag = sourcePath.toLowerCase().endsWith(".tcio") ? "</Itf>" : "</POU>";
+    const insertAt = xml.lastIndexOf(closeTag);
+    if (insertAt < 0) {
+        throw new UserFacingError(`Cannot add staged property because ${closeTag} was not found in ${sourcePath}.`);
+    }
+    return `${xml.slice(0, insertAt)}${memberXml}${xml.slice(insertAt)}`;
+}
+
+function splitStagedFunctionBlock(code: string): { code: string; methods: StagedMethod[]; properties: StagedProperty[] } {
     const lines = code.trimEnd().split(/\r?\n/);
     const functionBlockLines: string[] = [];
     const methods: StagedMethod[] = [];
+    const properties: StagedProperty[] = [];
 
     for (let index = 0; index < lines.length; index += 1) {
-        if (!isMethodStartLine(lines[index])) {
+        if (!isMethodStartLine(lines[index]) && !isPropertyStartLine(lines[index])) {
             functionBlockLines.push(lines[index]);
             continue;
         }
 
-        const methodPrefix: string[] = [];
+        const memberPrefix: string[] = [];
         while (functionBlockLines.length > 0 && isAttributeLine(functionBlockLines.at(-1)!)) {
-            methodPrefix.unshift(functionBlockLines.pop()!);
+            memberPrefix.unshift(functionBlockLines.pop()!);
         }
 
-        const endIndex = findEndMethodLine(lines, index);
+        if (isMethodStartLine(lines[index])) {
+            const endIndex = findEndMethodLine(lines, index);
+            if (endIndex < 0) {
+                throw new UserFacingError(`Staged method is missing END_METHOD near line ${index + 1}.`);
+            }
+
+            const methodLines = [...memberPrefix, ...lines.slice(index, endIndex + 1)];
+            methods.push({
+                name: methodNameFromLines(methodLines, index + 1),
+                code: `${methodLines.join("\n")}\n`,
+            });
+            index = endIndex;
+            continue;
+        }
+
+        const endIndex = findEndPropertyLine(lines, index);
         if (endIndex < 0) {
-            throw new UserFacingError(`Staged method is missing END_METHOD near line ${index + 1}.`);
+            throw new UserFacingError(`Staged property is missing END_PROPERTY near line ${index + 1}.`);
         }
 
-        const methodLines = [...methodPrefix, ...lines.slice(index, endIndex + 1)];
-        methods.push({
-            name: methodNameFromLines(methodLines, index + 1),
-            code: `${methodLines.join("\n")}\n`,
+        const propertyLines = [...memberPrefix, ...lines.slice(index, endIndex + 1)];
+        properties.push({
+            name: propertyNameFromLines(propertyLines, index + 1),
+            code: `${propertyLines.join("\n")}\n`,
         });
         index = endIndex;
     }
@@ -2567,11 +3199,16 @@ function splitStagedFunctionBlock(code: string): { code: string; methods: Staged
     return {
         code: `${functionBlockLines.join("\n").trimEnd()}\n`,
         methods,
+        properties,
     };
 }
 
 function isMethodStartLine(line: string): boolean {
     return /^\s*METHOD\b/i.test(line);
+}
+
+function isPropertyStartLine(line: string): boolean {
+    return /^\s*PROPERTY\b/i.test(line);
 }
 
 function isAttributeLine(line: string): boolean {
@@ -2580,7 +3217,16 @@ function isAttributeLine(line: string): boolean {
 
 function findEndMethodLine(lines: string[], startIndex: number): number {
     for (let index = startIndex + 1; index < lines.length; index += 1) {
-        if (/^\s*END_METHOD\s*;?\s*$/i.test(lines[index])) {
+        if (isEndKeywordLine(lines[index], "END_METHOD")) {
+            return index;
+        }
+    }
+    return -1;
+}
+
+function findEndPropertyLine(lines: string[], startIndex: number): number {
+    for (let index = startIndex + 1; index < lines.length; index += 1) {
+        if (isEndKeywordLine(lines[index], "END_PROPERTY")) {
             return index;
         }
     }
@@ -2601,6 +3247,35 @@ function methodNameFromLines(lines: string[], sourceLine: number): string {
     }
 
     return name;
+}
+
+function propertyNameFromLines(lines: string[], sourceLine: number): string {
+    const propertyLine = lines.find((line) => isPropertyStartLine(line));
+    const declaration = propertyLine?.replace(/^\s*PROPERTY\s+/i, "").split(":")[0].trim() ?? "";
+    const modifiers = new Set(["PUBLIC", "PRIVATE", "PROTECTED", "INTERNAL", "FINAL", "ABSTRACT"]);
+    const name = declaration
+        .split(/\s+/)
+        .filter((part) => part && !modifiers.has(part.toUpperCase()))
+        .at(-1);
+
+    if (!name || !/^[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z_][A-Za-z0-9_]*)*$/.test(name)) {
+        throw new UserFacingError(`Could not determine staged property name near line ${sourceLine}.`);
+    }
+
+    return name;
+}
+
+function stagedFunctionBlockMemberNames(code: string): Set<string> {
+    const names = new Set<string>();
+    const lines = code.split(/\r?\n/);
+    for (let index = 0; index < lines.length; index += 1) {
+        if (isMethodStartLine(lines[index])) {
+            names.add(methodNameFromLines([lines[index]], index + 1).toLowerCase());
+        } else if (isPropertyStartLine(lines[index])) {
+            names.add(propertyNameFromLines([lines[index]], index + 1).toLowerCase());
+        }
+    }
+    return names;
 }
 
 function escapeXmlAttribute(value: string): string {
@@ -2625,7 +3300,7 @@ function safeCdata(value: string): string {
 
 function stripTrailingEnd(code: string, endKeyword: string): string {
     const lines = code.trimEnd().split(/\r?\n/);
-    if (lines.at(-1)?.trim().toUpperCase() === endKeyword) {
+    if (isEndKeywordLine(lines.at(-1) ?? "", endKeyword)) {
         lines.pop();
     }
     return `${lines.join("\n")}\n`;
@@ -2633,7 +3308,7 @@ function stripTrailingEnd(code: string, endKeyword: string): string {
 
 function splitPouCode(code: string, endKeyword: string): [string, string] {
     const lines = code.trimEnd().split(/\r?\n/);
-    const endIndex = lines.findIndex((line) => line.trim().toUpperCase() === endKeyword);
+    const endIndex = lines.findIndex((line) => isEndKeywordLine(line, endKeyword));
     if (endIndex < 0) {
         return [`${lines.join("\n")}\n`, ""];
     }

@@ -62,6 +62,8 @@
     "onCommand:vscodecat.runBackendSelfTest",
     "workspaceContains:blark_twincat.json",
     "workspaceContains:**/blark_twincat.json",
+    "workspaceContains:blark.json",
+    "workspaceContains:**/blark.json",
     "onView:vscodecat.objects",
     "onView:vscodecat.mapping",
     "onView:vscodecat.diagnostics",
@@ -240,6 +242,7 @@
         { "command": "vscodecat.previewOutputDiff", "when": "vscodecat.hasDecodedWorkspace" },
         { "command": "vscodecat.validateWorkspace", "when": "vscodecat.hasDecodedWorkspace" },
         { "command": "vscodecat.newPlcObject", "when": "vscodecat.hasDecodedWorkspace" },
+        { "command": "vscodecat.newProperty", "when": "vscodecat.activeStagedFunctionBlock || vscodecat.activePropertyContainer" },
         { "command": "vscodecat.openObject", "when": "vscodecat.hasDecodedWorkspace" }
       ],
       "explorer/context": [
@@ -250,32 +253,32 @@
         },
         {
           "command": "vscodecat.openDecodedWorkspace",
-          "when": "resourceFilename == 'blark_twincat.json'",
+          "when": "resourceFilename == 'blark_twincat.json' || resourceFilename == 'blark.json'",
           "group": "vscodecat@2"
         },
         {
           "command": "vscodecat.refreshManifest",
-          "when": "resourceFilename == 'blark_twincat.json'",
+          "when": "resourceFilename == 'blark_twincat.json' || resourceFilename == 'blark.json'",
           "group": "vscodecat@3"
         },
         {
           "command": "vscodecat.validateManifest",
-          "when": "resourceFilename == 'blark_twincat.json'",
+          "when": "resourceFilename == 'blark_twincat.json' || resourceFilename == 'blark.json'",
           "group": "vscodecat@4"
         },
         {
           "command": "vscodecat.validateWorkspace",
-          "when": "resourceFilename == 'blark_twincat.json'",
+          "when": "resourceFilename == 'blark_twincat.json' || resourceFilename == 'blark.json'",
           "group": "vscodecat@5"
         },
         {
           "command": "vscodecat.previewOutputDiff",
-          "when": "resourceFilename == 'blark_twincat.json'",
+          "when": "resourceFilename == 'blark_twincat.json' || resourceFilename == 'blark.json'",
           "group": "vscodecat@6"
         },
         {
           "command": "vscodecat.encodeProject",
-          "when": "resourceFilename == 'blark_twincat.json'",
+          "when": "resourceFilename == 'blark_twincat.json' || resourceFilename == 'blark.json'",
           "group": "vscodecat@7"
         },
         {
@@ -291,6 +294,7 @@
       ],
       "editor/title": [
         { "command": "vscodecat.validateCurrentFile", "when": "editorLangId == 'twincat-st'", "group": "navigation" },
+        { "command": "vscodecat.newProperty", "when": "editorLangId == 'twincat-st' && (vscodecat.activeStagedFunctionBlock || vscodecat.activePropertyContainer)", "group": "navigation" },
         { "command": "vscodecat.showCurrentObjectSummary", "when": "editorLangId == 'twincat-st' && vscodecat.activeMappedSt", "group": "navigation" }
       ],
       "editor/context": [
@@ -298,7 +302,8 @@
         { "command": "vscodecat.showCurrentObjectSummary", "when": "editorLangId == 'twincat-st' && vscodecat.activeMappedSt", "group": "vscodecat@2" },
         { "command": "vscodecat.openNativeSource", "when": "editorLangId == 'twincat-st' && vscodecat.activeMappedSt", "group": "vscodecat@3" },
         { "command": "vscodecat.diffCurrentObject", "when": "editorLangId == 'twincat-st' && vscodecat.activeMappedSt && vscodecat.hasPreview", "group": "vscodecat@4" },
-        { "command": "vscodecat.repairSectionMarkers", "when": "editorLangId == 'twincat-st' && vscodecat.activeMappedSt", "group": "vscodecat@5" }
+        { "command": "vscodecat.repairSectionMarkers", "when": "editorLangId == 'twincat-st' && vscodecat.activeMappedSt", "group": "vscodecat@5" },
+        { "command": "vscodecat.newProperty", "when": "editorLangId == 'twincat-st' && (vscodecat.activeStagedFunctionBlock || vscodecat.activePropertyContainer)", "group": "vscodecat@6" }
       ],
       "view/title": [
         { "command": "vscodecat.refreshManifest", "when": "view =~ /^vscodecat\\./", "group": "navigation" },
@@ -309,6 +314,8 @@
       "view/item/context": [
         { "command": "vscodecat.openObject", "when": "view == 'vscodecat.objects' && viewItem =~ /Object$/", "group": "inline" },
         { "command": "vscodecat.copyObjectName", "when": "view == 'vscodecat.objects' && viewItem =~ /Object$/", "group": "inline" },
+        { "command": "vscodecat.newProperty", "when": "view == 'vscodecat.objects' && viewItem == 'stagedFunctionBlockObject'", "group": "vscodecat@1" },
+        { "command": "vscodecat.newProperty", "when": "view == 'vscodecat.objects' && viewItem == 'mappedPropertyContainerObject'", "group": "vscodecat@1" },
         { "command": "vscodecat.openNativeSource", "when": "view == 'vscodecat.mapping' && viewItem == 'mappingItem'", "group": "inline" },
         { "command": "vscodecat.diffCurrentObject", "when": "view == 'vscodecat.diff' && viewItem == 'changedFile'", "group": "inline" }
       ]
